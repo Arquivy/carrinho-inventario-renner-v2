@@ -119,10 +119,11 @@ carrinho inventario Renner/
 
 Para dar continuidade na nova máquina de desenvolvimento, siga a seguinte ordem prioritária:
 
-1. **Instalação e Setup do Ambiente:**
+1. **Instalação e Setup do Ambiente na Nova Máquina:**
    ```bash
-   # Clonar / abrir a pasta do projeto
-   cd "carrinho inventario Renner"
+   # Clonar o repositório
+   git clone https://github.com/Arquivy/carrinho-inventario-renner.git
+   cd carrinho-inventario-renner
 
    # Instalar dependências via Poetry
    poetry install
