@@ -100,6 +100,19 @@ async def get_value_placeholder():
 	return {'Corredor': rfid_manager.controller.current_aisle}
 
 
+@router.get(
+	'/get_available_corredores',
+	summary='Get list of distinct corridors loaded in inventory',
+)
+async def get_available_corredores():
+	try:
+		items = rfid_manager.controller.integration.db_manager.get_all(Inventory)
+		corrs = sorted(list({i.corredor for i in items if i.corredor}))
+		return {'corredores': corrs}
+	except Exception as e:
+		return {'corredores': [], 'error': str(e)}
+
+
 @router.delete(
 	'/delete_value_placeholder',
 	summary='Delete the value for placeholder',
@@ -134,23 +147,48 @@ async def receive_from_file(items: list[dict]):
 		return JSONResponse(status_code=400, content={'message': 'Payload cannot be empty'})
 
 	try:
+		valid_items = []
 		for index, item in enumerate(items):
-			endereco = item.get('endereco')
-			corredor = (
-				Inventory.corredor_from_endereco(endereco) if isinstance(endereco, str) else None
-			)
+			endereco = str(item.get('endereco') or '').strip()
+			if not endereco:
+				continue
+			corredor = Inventory.corredor_from_endereco(endereco)
 			if corredor is None:
-				return JSONResponse(
-					status_code=400,
-					content={
-						'message': f'Invalid endereco at item {index}: expected a C... segment followed by a period'
-					},
-				)
-			item['corredor'] = corredor
+				corredor = item.get('corredor') or item.get('rua')
+				if not corredor:
+					continue
+			corredor = str(corredor).strip()
+			if not corredor.upper().startswith('C') and corredor.isdigit():
+				corredor = f'C{corredor}'
 
-		rfid_manager.controller.integration.db_manager.bulk_upsert(Inventory, items, 'endereco')
-		return {'message': 'Values received and processed successfully'}
+			item['endereco'] = endereco
+			item['corredor'] = corredor
+			try:
+				item['quantidade'] = int(float(item.get('quantidade') or 0))
+			except (ValueError, TypeError):
+				item['quantidade'] = 1
+			item['sku'] = str(item.get('sku') or '').strip()
+			valid_items.append(item)
+
+		if not valid_items:
+			return JSONResponse(
+				status_code=400,
+				content={'message': 'Nenhum endereço válido encontrado no arquivo'},
+			)
+
+		rfid_manager.controller.integration.db_manager.bulk_upsert(
+			Inventory, valid_items, 'endereco'
+		)
+
+		corredores = sorted(list({it['corredor'] for it in valid_items}))
+		if corredores and not rfid_manager.controller.current_aisle:
+			rfid_manager.controller.set_current_comparison(corredores[0])
+
+		return {
+			'message': f'{len(valid_items)} itens recebidos com sucesso! Ruas identificadas: {", ".join(corredores[:5])}'
+		}
 	except Exception as e:
+		logging.error(f'Error processing file: {e}')
 		return JSONResponse(status_code=500, content={'message': str(e)})
 
 

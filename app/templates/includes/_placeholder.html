@@ -1,0 +1,170 @@
+<!-- Widget de Seleção de Rua / Corredor -->
+<div class="bg-white rounded-lg shadow border border-slate-200 p-4 flex-1" x-data="aisleSelectorWidget()">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div>
+            <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                <span>📍</span> Rua / Corredor do Inventário
+            </h3>
+            <div class="text-xs text-slate-500 mt-0.5">Selecione ou digite a rua carregada da planilha para conferência.</div>
+        </div>
+
+        <!-- Corredor Atual Badge -->
+        <div class="flex items-center gap-2">
+            <template x-if="currentAisle">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-indigo-100 text-indigo-800 border border-indigo-200 shadow-sm">
+                    <span class="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
+                    Ativo: <span x-text="currentAisle"></span>
+                </span>
+            </template>
+            <template x-if="!currentAisle">
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                    Nenhum corredor selecionado
+                </span>
+            </template>
+        </div>
+    </div>
+
+    <!-- Form de Seleção -->
+    <form class="flex flex-wrap items-center gap-2" @submit.prevent="submitAisle()">
+        <!-- Dropdown com corredores carregados da base -->
+        <div class="flex-1 min-w-[200px]" x-show="availableAisles.length > 0">
+            <select x-model="selectedAisle" @change="draftValue = selectedAisle"
+                class="w-full rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800 font-semibold focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200">
+                <option value="">-- Selecione uma Rua da Base --</option>
+                <template x-for="aisle in availableAisles" :key="aisle">
+                    <option :value="aisle" x-text="`Corredor ${aisle}`" :selected="aisle === currentAisle"></option>
+                </template>
+            </select>
+        </div>
+
+        <!-- Input manual caso queira digitar -->
+        <div class="w-48">
+            <input x-model="draftValue" type="text" placeholder="Ex: C131 ou 131"
+                class="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+        </div>
+
+        <!-- Botões -->
+        <button type="submit" :disabled="loading || (!draftValue.trim() && !selectedAisle)" :class="{
+                'bg-indigo-600 hover:bg-indigo-700': !loading && (draftValue.trim() || selectedAisle),
+                'bg-slate-300 cursor-not-allowed': loading || (!draftValue.trim() && !selectedAisle),
+            }" class="text-white px-4 py-2 rounded text-sm font-bold transition shadow-sm">
+            <span x-text="loading ? 'Definindo...' : 'Definir Rua'"></span>
+        </button>
+
+        <button type="button" @click="clearAisle()" :disabled="loading || !currentAisle" :class="{
+                'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200': !loading && currentAisle,
+                'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed': loading || !currentAisle,
+            }" class="px-3 py-2 rounded text-sm font-semibold transition">
+            Limpar
+        </button>
+    </form>
+</div>
+
+<script>
+    function aisleSelectorWidget() {
+        return {
+            currentAisle: "",
+            draftValue: "",
+            selectedAisle: "",
+            availableAisles: [],
+            loading: false,
+
+            async init() {
+                await this.loadAvailableAisles();
+                await this.loadCurrentAisle();
+
+                // Poll occasionally to reflect imported file changes
+                setInterval(() => {
+                    if (!document.hidden) {
+                        this.loadAvailableAisles();
+                        this.loadCurrentAisle();
+                    }
+                }, 3000);
+            },
+
+            async loadAvailableAisles() {
+                try {
+                    const res = await fetch("/api/v1/controller/get_available_corredores");
+                    if (res.ok) {
+                        const data = await res.json();
+                        this.availableAisles = Array.isArray(data.corredores) ? data.corredores : [];
+                    }
+                } catch (e) {
+                    console.error("Error loading available aisles:", e);
+                }
+            },
+
+            async loadCurrentAisle() {
+                try {
+                    const res = await fetch("{{ url_for('get_value_placeholder') }}");
+                    if (res.ok) {
+                        const data = await res.json();
+                        this.currentAisle = data.Corredor || data.CORREDOR || "";
+                        if (this.currentAisle && !this.selectedAisle) {
+                            this.selectedAisle = this.currentAisle;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error loading current aisle:", e);
+                }
+            },
+
+            async submitAisle() {
+                const aisle = (this.draftValue || this.selectedAisle || "").trim();
+                if (!aisle || this.loading) return;
+
+                this.loading = true;
+                try {
+                    const endpoint = "{{ url_for('set_value_placeholder', value='AISLE_VALUE') }}".replace(
+                        "AISLE_VALUE",
+                        encodeURIComponent(aisle)
+                    );
+                    const res = await fetch(endpoint, { method: "POST" });
+                    const data = await res.json();
+
+                    if (!res.ok) {
+                        throw new Error(data.message || `HTTP ${res.status}`);
+                    }
+
+                    this.currentAisle = aisle;
+                    this.draftValue = "";
+                    await this.loadCurrentAisle();
+
+                    if (typeof window.showAlert === "function") {
+                        window.showAlert(`Rua/Corredor definido: ${aisle}`, "success", 4000, "toast");
+                    }
+
+                    // Reload tags table
+                    window.dispatchEvent(new CustomEvent("aisle-changed", { detail: { aisle } }));
+                } catch (err) {
+                    console.error("Error setting aisle:", err);
+                    if (typeof window.showAlert === "function") {
+                        window.showAlert(err.message, "error", 5000, "toast");
+                    } else {
+                        alert(err.message);
+                    }
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            async clearAisle() {
+                if (this.loading) return;
+                this.loading = true;
+                try {
+                    await fetch("{{ url_for('delete_value_placeholder') }}", { method: "DELETE" });
+                    this.currentAisle = "";
+                    this.selectedAisle = "";
+                    this.draftValue = "";
+                    if (typeof window.showAlert === "function") {
+                        window.showAlert("Corredor desmarcado", "info", 3000, "toast");
+                    }
+                } catch (e) {
+                    console.error("Error clearing aisle:", e);
+                } finally {
+                    this.loading = false;
+                }
+            }
+        };
+    }
+</script>

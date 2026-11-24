@@ -32,7 +32,7 @@ class Controller:
 		if not self.integration.db_manager:
 			raise ValueError('Integration must have a db_manager')
 
-		self.current_aisle = None
+		self.current_aisle = 'C131'
 		self.current_comparison = None
 
 	# [ EVENTS ]
@@ -224,15 +224,35 @@ class Controller:
 		return report
 
 	def set_current_comparison(self, aisle: str):
+		aisle = str(aisle).strip()
 		logging.info(f'Setting current comparison to aisle: {aisle}')
-		result = self.integration.db_manager.get_where(Inventory, {'corredor': aisle})
+		candidates = [aisle]
+		if aisle.upper().startswith('C'):
+			candidates.append(aisle[1:])
+		elif aisle.isdigit():
+			candidates.append(f'C{aisle}')
+
+		result = []
+		for cand in candidates:
+			res = self.integration.db_manager.get_where(Inventory, {'corredor': cand})
+			if res:
+				result = res
+				aisle = cand
+				break
+
 		if not result:
-			raise ValueError(f'Sem tags encontradas no corredor: {aisle}')
+			raise ValueError(f'Sem itens encontrados no corredor: {aisle}')
 		self.current_comparison = [r.to_dict() for r in result]
 		self.current_aisle = aisle
 		self.tags.clear()
 
 	def get_comparison(self):
+		if self.current_comparison is None and self.current_aisle:
+			try:
+				self.set_current_comparison(self.current_aisle)
+			except Exception:
+				pass
+
 		if self.current_comparison is None:
 			return []
 		result = {}

@@ -1,0 +1,550 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-[1700px] mx-auto px-4 py-6" x-data="carrinhoApp()">
+
+  <!-- Control Header Card -->
+  <div class="bg-white rounded-xl shadow-md border border-slate-200 p-5 mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4 mb-4">
+      
+      <!-- Title & Corridor Selector -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-xl shadow-sm">
+          🛒
+        </div>
+        <div>
+          <h2 class="text-xl font-bold text-slate-900 leading-tight">Carrinho de Inventário RFID</h2>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Corredor:</span>
+            <select x-model="corredor" @change="updateCorredor()"
+              class="text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-2 py-0.5 focus:ring-2 focus:ring-indigo-500">
+              <template x-for="c in state.corredores_disponiveis" :key="c">
+                <option :value="c" x-text="c"></option>
+              </template>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real Hardware Reader Status Badge & Setup Shortcut -->
+      <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+        <div class="text-xs font-semibold text-slate-500">Hardware RFID:</div>
+        
+        <!-- When Connected -->
+        <template x-if="deviceStatus.connected">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-300">
+              <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              <span x-text="`${deviceStatus.device_name || 'Leitor'} Conectado`"></span>
+            </span>
+
+            <button @click="toggleInventory()"
+              :class="deviceStatus.reading ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'"
+              class="px-3 py-1 rounded text-xs font-bold text-white transition shadow-sm">
+              <span x-text="deviceStatus.reading ? '⏹ Parar Leitor' : '▶ Iniciar Leitura'"></span>
+            </button>
+          </div>
+        </template>
+
+        <!-- When Disconnected -->
+        <template x-if="!deviceStatus.connected">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
+              <span class="w-2 h-2 rounded-full bg-red-500"></span>
+              Nenhum Leitor Conectado
+            </span>
+
+            <a href="/settings/devices"
+              class="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold shadow-sm transition">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+              </svg>
+              Cadastrar / Configurar Leitor
+            </a>
+          </div>
+        </template>
+      </div>
+
+      <!-- Import Button & Actions -->
+      <div class="flex items-center gap-2">
+        {% include 'includes/_file_uploader.html' %}
+        
+        <button @click="simulateStep()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm transition">
+          ⚡ Simular Leitura (Passo)
+        </button>
+
+        <button @click="resetEngine()"
+          class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition">
+          🔄 Reiniciar
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Sliders and Processing Mode Row -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+      
+      <!-- Buffer Size Slider (1 to 8) -->
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <div class="flex justify-between items-center mb-1">
+          <label class="text-xs font-bold text-slate-700 uppercase tracking-wide">Fila Ativa Máx / Quadrante</label>
+          <span class="text-sm font-extrabold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded"
+            x-text="`${bufferSize} endereços`"></span>
+        </div>
+        <input type="range" min="1" max="8" step="1" x-model.number="bufferSize" @change="updateSettings()"
+          class="w-full accent-indigo-600 cursor-pointer">
+        <div class="flex justify-between text-[10px] text-slate-400 mt-0.5">
+          <span>1 mín</span>
+          <span>4</span>
+          <span>6 padrão</span>
+          <span>8 máx</span>
+        </div>
+      </div>
+
+      <!-- Time Decay Slider -->
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <div class="flex justify-between items-center mb-1">
+          <label class="text-xs font-bold text-slate-700 uppercase tracking-wide">Decaimento Temporal (Filtro)</label>
+          <span class="text-sm font-extrabold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded"
+            x-text="`${timeDecay}s`"></span>
+        </div>
+        <input type="range" min="1" max="30" step="1" x-model.number="timeDecay" @change="updateSettings()"
+          class="w-full accent-indigo-600 cursor-pointer">
+        <div class="flex justify-between text-[10px] text-slate-400 mt-0.5">
+          <span>1s</span>
+          <span>5s (Recomendado)</span>
+          <span>30s</span>
+        </div>
+      </div>
+
+      <!-- Mode Selector (Real-Time vs Batch Processing) -->
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <div class="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">Modo de Processamento</div>
+        <div class="flex items-center gap-2">
+          <button type="button" @click="setMode('realtime')"
+            :class="mode === 'realtime' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'"
+            class="flex-1 py-1.5 px-2 rounded text-xs font-bold transition text-center">
+            ⚡ Tempo Real
+          </button>
+          <button type="button" @click="setMode('batch')"
+            :class="mode === 'batch' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'"
+            class="flex-1 py-1.5 px-2 rounded text-xs font-bold transition text-center">
+            📊 Tratamento ao Finalizar
+          </button>
+        </div>
+        <div x-show="mode === 'batch'" class="mt-2 text-center" style="display: none">
+          <button @click="processBatch()"
+            class="w-full py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm">
+            Processar Lote Agora (<span x-text="state.raw_batch_count || 0"></span> tags)
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Summary KPI Bar -->
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4 pt-4 border-t border-slate-200">
+      <div class="bg-slate-100 rounded-lg p-2.5 text-center">
+        <div class="text-[11px] font-bold text-slate-500 uppercase">Endereços no Corredor</div>
+        <div class="text-lg font-black text-slate-800" x-text="state.resumo ? state.resumo.total_enderecos : 0"></div>
+      </div>
+      <div class="bg-slate-100 rounded-lg p-2.5 text-center">
+        <div class="text-[11px] font-bold text-slate-500 uppercase">Peças / SKUs Esperados</div>
+        <div class="text-lg font-black text-slate-800" x-text="state.resumo ? state.resumo.total_skus : 0"></div>
+      </div>
+      <div class="bg-slate-100 rounded-lg p-2.5 text-center">
+        <div class="text-[11px] font-bold text-slate-500 uppercase">Peças Lidas</div>
+        <div class="text-lg font-black text-emerald-600" x-text="state.resumo ? state.resumo.total_lidos : 0"></div>
+      </div>
+      <div class="bg-slate-100 rounded-lg p-2.5 text-center">
+        <div class="text-[11px] font-bold text-slate-500 uppercase">Buffer Pré-Leitura</div>
+        <div class="text-lg font-black text-amber-600" x-text="state.pre_read_count || 0"></div>
+      </div>
+      <div class="bg-slate-100 rounded-lg p-2.5 text-center">
+        <div class="text-[11px] font-bold text-slate-500 uppercase">Acuracidade Global</div>
+        <div class="text-lg font-black text-indigo-600" x-text="`${state.resumo ? state.resumo.progresso_geral : 0}%`"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Physical 4-Quadrant Cart Matrix -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+    <!-- Quadrant 1: Top-Left (Q1) -->
+    <div class="bg-white rounded-xl shadow-md border-2 border-indigo-200 overflow-hidden flex flex-col">
+      <div class="bg-gradient-to-r from-indigo-700 to-indigo-800 px-4 py-3 text-white flex justify-between items-center">
+        <div>
+          <div class="text-xs font-semibold text-indigo-200 uppercase tracking-wide">Quadrante 1 • Superior Esquerdo</div>
+          <div class="text-base font-bold">Antena 1 • Seções Ímpares • Nível 2 (Superior)</div>
+        </div>
+        <div class="text-right">
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-indigo-900/60 text-indigo-100 border border-indigo-400">
+            Lendo agora (<span x-text="quadrants.Q1 ? quadrants.Q1.length : 0"></span>/<span x-text="bufferSize"></span>)
+          </span>
+          <div class="text-[11px] text-indigo-200 mt-0.5">
+            <span x-text="state.quadrant_stats && state.quadrant_stats.Q1 ? `${state.quadrant_stats.Q1.concluidos}/${state.quadrant_stats.Q1.total} concluídos` : ''"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 flex-1 bg-slate-50/50">
+        <div :class="getGridColsClass(bufferSize)" class="grid gap-3">
+          <template x-for="item in quadrants.Q1" :key="item.endereco">
+            <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm hover:shadow transition flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase"
+                    :class="item.progresso >= 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'"
+                    x-text="item.status"></span>
+                  <span class="text-xs font-black text-indigo-700" x-text="`${item.progresso}%`"></span>
+                </div>
+                <div class="font-bold text-slate-800 text-sm tracking-tight truncate" :title="item.endereco" x-text="item.endereco"></div>
+                <div class="text-[11px] text-slate-500 font-semibold mt-0.5" x-text="`${item.secao} • ${item.nivel} • ${item.lado}`"></div>
+              </div>
+
+              <div class="mt-3">
+                <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden mb-1">
+                  <div class="h-full rounded-full transition-all duration-300"
+                    :class="item.progresso >= 100 ? 'bg-emerald-500' : 'bg-indigo-600'"
+                    :style="`width: ${Math.min(100, item.progresso)}%`"></div>
+                </div>
+                <div class="flex justify-between text-[11px] font-bold text-slate-600">
+                  <span>Lidos: <span class="text-slate-900" x-text="item.skus_lidos"></span></span>
+                  <span>Total: <span class="text-slate-900" x-text="item.skus_esperados"></span></span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <template x-if="!quadrants.Q1 || quadrants.Q1.length === 0">
+          <div class="text-center py-10 text-slate-400">
+            <div class="text-3xl mb-1">🏷️</div>
+            <div class="text-xs font-semibold">Aguardando leitura de tag de endereço (edc0...) para ativar este quadrante</div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Quadrant 3: Top-Right (Q3) -->
+    <div class="bg-white rounded-xl shadow-md border-2 border-indigo-200 overflow-hidden flex flex-col">
+      <div class="bg-gradient-to-r from-indigo-700 to-indigo-800 px-4 py-3 text-white flex justify-between items-center">
+        <div>
+          <div class="text-xs font-semibold text-indigo-200 uppercase tracking-wide">Quadrante 3 • Superior Direito</div>
+          <div class="text-base font-bold">Antena 3 • Seções Pares • Nível 2 (Superior)</div>
+        </div>
+        <div class="text-right">
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-indigo-900/60 text-indigo-100 border border-indigo-400">
+            Lendo agora (<span x-text="quadrants.Q3 ? quadrants.Q3.length : 0"></span>/<span x-text="bufferSize"></span>)
+          </span>
+          <div class="text-[11px] text-indigo-200 mt-0.5">
+            <span x-text="state.quadrant_stats && state.quadrant_stats.Q3 ? `${state.quadrant_stats.Q3.concluidos}/${state.quadrant_stats.Q3.total} concluídos` : ''"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 flex-1 bg-slate-50/50">
+        <div :class="getGridColsClass(bufferSize)" class="grid gap-3">
+          <template x-for="item in quadrants.Q3" :key="item.endereco">
+            <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm hover:shadow transition flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase"
+                    :class="item.progresso >= 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'"
+                    x-text="item.status"></span>
+                  <span class="text-xs font-black text-indigo-700" x-text="`${item.progresso}%`"></span>
+                </div>
+                <div class="font-bold text-slate-800 text-sm tracking-tight truncate" :title="item.endereco" x-text="item.endereco"></div>
+                <div class="text-[11px] text-slate-500 font-semibold mt-0.5" x-text="`${item.secao} • ${item.nivel} • ${item.lado}`"></div>
+              </div>
+
+              <div class="mt-3">
+                <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden mb-1">
+                  <div class="h-full rounded-full transition-all duration-300"
+                    :class="item.progresso >= 100 ? 'bg-emerald-500' : 'bg-indigo-600'"
+                    :style="`width: ${Math.min(100, item.progresso)}%`"></div>
+                </div>
+                <div class="flex justify-between text-[11px] font-bold text-slate-600">
+                  <span>Lidos: <span class="text-slate-900" x-text="item.skus_lidos"></span></span>
+                  <span>Total: <span class="text-slate-900" x-text="item.skus_esperados"></span></span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <template x-if="!quadrants.Q3 || quadrants.Q3.length === 0">
+          <div class="text-center py-10 text-slate-400">
+            <div class="text-3xl mb-1">🏷️</div>
+            <div class="text-xs font-semibold">Aguardando leitura de tag de endereço (edc0...) para ativar este quadrante</div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Quadrant 2: Bottom-Left (Q2) -->
+    <div class="bg-white rounded-xl shadow-md border-2 border-indigo-200 overflow-hidden flex flex-col">
+      <div class="bg-gradient-to-r from-slate-700 to-slate-800 px-4 py-3 text-white flex justify-between items-center">
+        <div>
+          <div class="text-xs font-semibold text-slate-300 uppercase tracking-wide">Quadrante 2 • Inferior Esquerdo</div>
+          <div class="text-base font-bold">Antena 2 • Seções Ímpares • Nível 1 (Inferior)</div>
+        </div>
+        <div class="text-right">
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-slate-900/60 text-slate-100 border border-slate-400">
+            Lendo agora (<span x-text="quadrants.Q2 ? quadrants.Q2.length : 0"></span>/<span x-text="bufferSize"></span>)
+          </span>
+          <div class="text-[11px] text-slate-300 mt-0.5">
+            <span x-text="state.quadrant_stats && state.quadrant_stats.Q2 ? `${state.quadrant_stats.Q2.concluidos}/${state.quadrant_stats.Q2.total} concluídos` : ''"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 flex-1 bg-slate-50/50">
+        <div :class="getGridColsClass(bufferSize)" class="grid gap-3">
+          <template x-for="item in quadrants.Q2" :key="item.endereco">
+            <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm hover:shadow transition flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase"
+                    :class="item.progresso >= 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'"
+                    x-text="item.status"></span>
+                  <span class="text-xs font-black text-indigo-700" x-text="`${item.progresso}%`"></span>
+                </div>
+                <div class="font-bold text-slate-800 text-sm tracking-tight truncate" :title="item.endereco" x-text="item.endereco"></div>
+                <div class="text-[11px] text-slate-500 font-semibold mt-0.5" x-text="`${item.secao} • ${item.nivel} • ${item.lado}`"></div>
+              </div>
+
+              <div class="mt-3">
+                <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden mb-1">
+                  <div class="h-full rounded-full transition-all duration-300"
+                    :class="item.progresso >= 100 ? 'bg-emerald-500' : 'bg-indigo-600'"
+                    :style="`width: ${Math.min(100, item.progresso)}%`"></div>
+                </div>
+                <div class="flex justify-between text-[11px] font-bold text-slate-600">
+                  <span>Lidos: <span class="text-slate-900" x-text="item.skus_lidos"></span></span>
+                  <span>Total: <span class="text-slate-900" x-text="item.skus_esperados"></span></span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <template x-if="!quadrants.Q2 || quadrants.Q2.length === 0">
+          <div class="text-center py-10 text-slate-400">
+            <div class="text-3xl mb-1">🏷️</div>
+            <div class="text-xs font-semibold">Aguardando leitura de tag de endereço (edc0...) para ativar este quadrante</div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Quadrant 4: Bottom-Right (Q4) -->
+    <div class="bg-white rounded-xl shadow-md border-2 border-indigo-200 overflow-hidden flex flex-col">
+      <div class="bg-gradient-to-r from-slate-700 to-slate-800 px-4 py-3 text-white flex justify-between items-center">
+        <div>
+          <div class="text-xs font-semibold text-slate-300 uppercase tracking-wide">Quadrante 4 • Inferior Direito</div>
+          <div class="text-base font-bold">Antena 4 • Seções Pares • Nível 1 (Inferior)</div>
+        </div>
+        <div class="text-right">
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-slate-900/60 text-slate-100 border border-slate-400">
+            Lendo agora (<span x-text="quadrants.Q4 ? quadrants.Q4.length : 0"></span>/<span x-text="bufferSize"></span>)
+          </span>
+          <div class="text-[11px] text-slate-300 mt-0.5">
+            <span x-text="state.quadrant_stats && state.quadrant_stats.Q4 ? `${state.quadrant_stats.Q4.concluidos}/${state.quadrant_stats.Q4.total} concluídos` : ''"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 flex-1 bg-slate-50/50">
+        <div :class="getGridColsClass(bufferSize)" class="grid gap-3">
+          <template x-for="item in quadrants.Q4" :key="item.endereco">
+            <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm hover:shadow transition flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase"
+                    :class="item.progresso >= 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'"
+                    x-text="item.status"></span>
+                  <span class="text-xs font-black text-indigo-700" x-text="`${item.progresso}%`"></span>
+                </div>
+                <div class="font-bold text-slate-800 text-sm tracking-tight truncate" :title="item.endereco" x-text="item.endereco"></div>
+                <div class="text-[11px] text-slate-500 font-semibold mt-0.5" x-text="`${item.secao} • ${item.nivel} • ${item.lado}`"></div>
+              </div>
+
+              <div class="mt-3">
+                <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden mb-1">
+                  <div class="h-full rounded-full transition-all duration-300"
+                    :class="item.progresso >= 100 ? 'bg-emerald-500' : 'bg-indigo-600'"
+                    :style="`width: ${Math.min(100, item.progresso)}%`"></div>
+                </div>
+                <div class="flex justify-between text-[11px] font-bold text-slate-600">
+                  <span>Lidos: <span class="text-slate-900" x-text="item.skus_lidos"></span></span>
+                  <span>Total: <span class="text-slate-900" x-text="item.skus_esperados"></span></span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <template x-if="!quadrants.Q4 || quadrants.Q4.length === 0">
+          <div class="text-center py-10 text-slate-400">
+            <div class="text-3xl mb-1">🏷️</div>
+            <div class="text-xs font-semibold">Aguardando leitura de tag de endereço (edc0...) para ativar este quadrante</div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  function carrinhoApp() {
+    return {
+      corredor: 'C131',
+      bufferSize: 6,
+      timeDecay: 5,
+      mode: 'realtime',
+      state: {},
+      quadrants: { Q1: [], Q2: [], Q3: [], Q4: [] },
+      deviceStatus: { connected: false, reading: false, device_name: null },
+      pollInterval: null,
+
+      async init() {
+        await this.loadDeviceStatus();
+        await this.loadState();
+
+        // Bind auto polling every 2 seconds
+        this.pollInterval = setInterval(async () => {
+          if (!document.hidden) {
+            await this.loadDeviceStatus();
+            await this.loadState();
+          }
+        }, 2000);
+      },
+
+      destroy() {
+        if (this.pollInterval) {
+          clearInterval(this.pollInterval);
+        }
+      },
+
+      getGridColsClass(size) {
+        if (size <= 2) return 'grid-cols-1 sm:grid-cols-2';
+        if (size <= 4) return 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4';
+        if (size <= 6) return 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3';
+        return 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4';
+      },
+
+      async loadDeviceStatus() {
+        try {
+          const res = await fetch('/api/v1/carrinho/device_status');
+          if (res.ok) {
+            this.deviceStatus = await res.json();
+          }
+        } catch (e) {
+          console.error('Error fetching device status', e);
+        }
+      },
+
+      async loadState() {
+        try {
+          const res = await fetch('/api/v1/carrinho/state');
+          if (res.ok) {
+            this.state = await res.json();
+            this.corredor = this.state.corredor || this.corredor;
+            this.bufferSize = this.state.buffer_size || this.bufferSize;
+            this.timeDecay = this.state.time_decay || this.timeDecay;
+            this.mode = this.state.mode || this.mode;
+            this.quadrants = this.state.quadrants || { Q1: [], Q2: [], Q3: [], Q4: [] };
+          }
+        } catch (e) {
+          console.error('Error fetching state', e);
+        }
+      },
+
+      async updateCorredor() {
+        await this.postSettings({ corredor: this.corredor });
+      },
+
+      async updateSettings() {
+        await this.postSettings({
+          buffer_size: this.bufferSize,
+          time_decay: this.timeDecay,
+          mode: this.mode,
+        });
+      },
+
+      async setMode(m) {
+        this.mode = m;
+        await this.postSettings({ mode: m });
+      },
+
+      async postSettings(payload) {
+        try {
+          const res = await fetch('/api/v1/carrinho/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (res.ok) {
+            this.state = await res.json();
+            this.quadrants = this.state.quadrants;
+          }
+        } catch (e) {
+          console.error('Error updating settings', e);
+        }
+      },
+
+      async toggleInventory() {
+        try {
+          await fetch('/api/v1/carrinho/toggle_inventory', { method: 'POST' });
+          await this.loadDeviceStatus();
+        } catch (e) {
+          console.error('Error toggling inventory', e);
+        }
+      },
+
+      async simulateStep() {
+        try {
+          const res = await fetch('/api/v1/carrinho/simulate_step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ count: 10 })
+          });
+          if (res.ok) {
+            this.state = await res.json();
+            this.quadrants = this.state.quadrants;
+          }
+        } catch (e) {
+          console.error('Error in simulate step', e);
+        }
+      },
+
+      async processBatch() {
+        try {
+          await fetch('/api/v1/carrinho/process_batch', { method: 'POST' });
+          await this.loadState();
+        } catch (e) {
+          console.error('Error processing batch', e);
+        }
+      },
+
+      async resetEngine() {
+        try {
+          const res = await fetch('/api/v1/carrinho/reset', { method: 'POST' });
+          if (res.ok) {
+            this.state = await res.json();
+            this.quadrants = this.state.quadrants;
+          }
+        } catch (e) {
+          console.error('Error resetting', e);
+        }
+      }
+    };
+  }
+</script>
+{% endblock %}

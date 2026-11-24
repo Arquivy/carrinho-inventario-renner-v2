@@ -81,7 +81,12 @@ class Inventory(Base, BaseMixin):
 
 	@staticmethod
 	def corredor_from_endereco(endereco: str) -> str | None:
+		if not endereco:
+			return None
 		match = re.search(r'C([^.]+)\.', endereco)
+		if match:
+			return match.group(1)
+		match = re.search(r'C(\d+)', endereco, re.IGNORECASE)
 		return match.group(1) if match else None
 
 	@validates('endereco')

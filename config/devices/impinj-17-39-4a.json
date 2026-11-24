@@ -1,0 +1,17 @@
+{
+  "ip": "192.168.1.21",
+  "username": "root",
+  "password": "impinj",
+  "start_reading": true,
+  "session": 1,
+  "active_ant": [
+    1
+  ],
+  "read_power": 10,
+  "read_rssi": -30,
+  "search_mode": "single-target",
+  "rf_mode": 4,
+  "gpi_start": false,
+  "firmware_version": null,
+  "reader": "R420"
+}

@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Carrinho de Inventário Renner - Sistema Integrado</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    input[type=range] { accent-color: #2563eb; }
+    .grid-dynamic-1 { display: grid; grid-template-columns: 1fr; gap: 0.6rem; height: 100%; }
+    .grid-dynamic-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; height: 100%; }
+    .grid-dynamic-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; height: 100%; }
+    .grid-dynamic-4 { display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); gap: 0.5rem; height: 100%; }
+    .grid-dynamic-5, .grid-dynamic-6 { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap: 0.5rem; height: 100%; }
+    .grid-dynamic-7, .grid-dynamic-8 { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); gap: 0.4rem; height: 100%; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col justify-between p-3.5">
+
+  <!-- TOP HEADER -->
+  <header class="bg-white rounded-2xl shadow-sm border border-slate-200 px-6 py-2.5 flex items-center justify-between">
+    <div class="flex items-center space-x-4">
+      <div class="bg-red-600 text-white font-black text-lg tracking-wider px-3 py-1 rounded-lg shadow-sm">
+        RENNER
+      </div>
+      <div>
+        <h1 class="text-lg font-black text-slate-900 tracking-tight">Carrinho de Inventário RFID</h1>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mapeamento Físico Oficial: N1=Inferior | N2=Superior | Ímpar=Esquerda | Par=Direita</p>
+      </div>
+    </div>
+
+    <!-- Leitor R700 & Status -->
+    <div class="flex items-center space-x-5">
+      <div class="flex items-center space-x-2 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-xl text-emerald-700 font-bold text-xs">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="readerStatusText">Leitor R700 Conectado • 4 Antenas Sincronizadas</span>
+      </div>
+
+      <div class="text-right">
+        <div id="liveClock" class="text-xs font-black text-slate-800">18:30:00</div>
+        <div class="text-[10px] text-slate-400 font-semibold">Bateria: 85% • Wi-Fi OK</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTROLS & DYNAMIC SLIDERS BAR COM BOTÃO DE SIMULAÇÃO -->
+  <div class="grid grid-cols-12 gap-3 my-2 items-stretch">
+    
+    <!-- Corredor Ativo -->
+    <div class="col-span-2 bg-white rounded-2xl p-3 border border-slate-200 shadow-sm flex items-center justify-between">
+      <div>
+        <span class="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Corredor Atual</span>
+        <span id="activeCorridorText" class="text-2xl font-black text-blue-600 tracking-tight">C131</span>
+      </div>
+      <div class="text-right text-[10px] text-slate-500 font-semibold space-y-0.5">
+        <div>Vizinho Esq: <b class="text-slate-800">C129</b></div>
+        <div>Vizinho Dir: <b class="text-slate-800">C133</b></div>
+      </div>
+    </div>
+
+    <!-- Sliders Ajustáveis de Janela e Buffer Dinâmico (1 a 8) -->
+    <div class="col-span-4 bg-white rounded-2xl px-4 py-2 border border-slate-200 shadow-sm grid grid-cols-2 gap-4 items-center">
+      
+      <!-- Slider 1: Buffer da Fila (1 a 8) -->
+      <div class="space-y-1">
+        <div class="flex justify-between items-center">
+          <span class="text-[10px] font-black text-slate-600 uppercase">Buffer por Setor</span>
+          <span id="bufferValueBadge" class="text-[11px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
+            4 Endereços
+          </span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+          <button onclick="changeBuffer(-1)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs flex items-center justify-center transition">-</button>
+          <input type="range" id="bufferSlider" min="1" max="8" value="4" step="1" oninput="updateBuffer(this.value)" class="w-full h-1.5 bg-slate-200 rounded-lg cursor-pointer">
+          <button onclick="changeBuffer(1)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs flex items-center justify-center transition">+</button>
+        </div>
+        <div class="flex justify-between text-[8px] font-bold text-slate-400">
+          <span>Min: 1</span>
+          <span>Buffer Máx: 8</span>
+        </div>
+      </div>
+
+      <!-- Slider 2: Janela de Tempo -->
+      <div class="space-y-1 border-l border-slate-200 pl-4">
+        <div class="flex justify-between items-center">
+          <span class="text-[10px] font-black text-slate-600 uppercase">Janela de Tempo</span>
+          <span id="timeValueBadge" class="text-[11px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
+            4.0 s
+          </span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+          <button onclick="changeTime(-0.5)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs flex items-center justify-center transition">-</button>
+          <input type="range" id="timeSlider" min="1" max="15" step="0.5" value="4" oninput="updateTime(this.value)" class="w-full h-1.5 bg-slate-200 rounded-lg cursor-pointer">
+          <button onclick="changeTime(0.5)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs flex items-center justify-center transition">+</button>
+        </div>
+        <div class="flex justify-between text-[8px] font-bold text-slate-400">
+          <span>1.0s</span>
+          <span>15.0s</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- SELETOR DE MODO: TEMPO REAL vs TRATAMENTO PÓS-CORREDOR -->
+    <div class="col-span-3 bg-white rounded-2xl p-2 border border-slate-200 shadow-sm flex flex-col justify-between">
+      <div class="flex justify-between items-center px-1">
+        <span class="text-[9px] font-black text-slate-400 uppercase tracking-wider">Modo de Operação</span>
+        <span id="modeStatusPill" class="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+          ⚡ Leitura Leve (Tempo Real)
+        </span>
+      </div>
+      <div class="grid grid-cols-2 gap-1.5 mt-1">
+        <button id="btnRealTime" onclick="setMode('realtime')" class="py-2 px-2 rounded-xl text-xs font-black bg-blue-600 text-white shadow-xs flex items-center justify-center space-x-1 transition">
+          <span>⚡ Tempo Real</span>
+        </button>
+        <button id="btnPostProcess" onclick="setMode('post')" class="py-2 px-2 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center space-x-1 transition">
+          <span>⚙️ Tratar Dados</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- BOTÕES DE AÇÃO: SIMULAR PASSAGEM & FINALIZAR -->
+    <div class="col-span-3 flex items-center space-x-2">
+      <!-- Botão Simular Passagem -->
+      <button id="btnSimular" onclick="toggleSimulation()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 px-2 rounded-2xl shadow-sm text-xs flex items-center justify-center space-x-1.5 transition">
+        <span id="simularIcon">▶️</span>
+        <span id="simularText">Simular Passagem</span>
+      </button>
+
+      <!-- Botão Finalizar -->
+      <button onclick="finishCorridor()" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-black py-3 px-2 rounded-2xl shadow-sm text-xs flex items-center justify-center space-x-1.5 transition">
+        <span>🏁 Finalizar</span>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- TITLE & SUBTITLE -->
+  <div class="flex items-center justify-between mb-1.5 px-2">
+    <div class="flex items-center space-x-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping"></span>
+      <h2 class="text-xs font-black text-slate-700 uppercase tracking-wider">
+        Endereços do Corredor (Alinhamento Físico das 4 Antenas)
+      </h2>
+    </div>
+    <div class="text-[10px] font-bold text-slate-400 flex items-center space-x-3">
+      <span class="flex items-center"><span class="w-2 h-2 rounded bg-emerald-500 mr-1"></span> ≥ 90% Verde</span>
+      <span class="flex items-center"><span class="w-2 h-2 rounded bg-amber-500 mr-1"></span> ≥ 50% Amarelo</span>
+      <span class="flex items-center"><span class="w-2 h-2 rounded bg-rose-500 mr-1"></span> &lt; 50% Vermelho</span>
+      <span class="text-blue-600 font-extrabold">• Aos 100% o endereço sai da fila e abre vaga</span>
+    </div>
+  </div>
+
+  <!-- 4 QUADRANTES ESPELHANDO EXATAMENTE A ESTRUTURA FÍSICA DAS ARARAS -->
+  <main class="grid grid-cols-2 gap-3 flex-1 min-h-[530px]">
+    
+    <!-- QUADRANTE 1: ANTENA 1 -> SUPERIOR ESQUERDA (ÍMPAR • N2) -->
+    <div class="bg-white rounded-2xl p-3 border-2 border-slate-200 shadow-sm flex flex-col justify-between">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-1.5 mb-2">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span class="text-xs font-black text-slate-900 uppercase">Q1 • Antena 1 (Superior Esquerda)</span>
+          <span class="bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-black px-2 py-0.5 rounded-full">
+            ÍMPARES • N2 (Varão Superior)
+          </span>
+        </div>
+        <span id="q1Badge" class="text-[9px] font-bold text-slate-400">4 Vagas</span>
+      </div>
+
+      <div id="q1Container" class="flex-1 mb-2"></div>
+
+      <div class="bg-slate-50 rounded-xl px-2.5 py-1.5 border border-slate-200/80 flex items-center justify-between">
+        <span class="text-[9px] font-black text-slate-400 uppercase">Concluídos (100%):</span>
+        <div id="q1Completed" class="flex space-x-1.5">
+          <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-black rounded border border-emerald-300">
+            ✓ S001.N2
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- QUADRANTE 3: ANTENA 3 -> SUPERIOR DIREITA (PAR • N2) -->
+    <div class="bg-white rounded-2xl p-3 border-2 border-slate-200 shadow-sm flex flex-col justify-between">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-1.5 mb-2">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span class="text-xs font-black text-slate-900 uppercase">Q3 • Antena 3 (Superior Direita)</span>
+          <span class="bg-purple-50 text-purple-700 border border-purple-200 text-[9px] font-black px-2 py-0.5 rounded-full">
+            PARES • N2 (Varão Superior)
+          </span>
+        </div>
+        <span id="q3Badge" class="text-[9px] font-bold text-slate-400">4 Vagas</span>
+      </div>
+
+      <div id="q3Container" class="flex-1 mb-2"></div>
+
+      <div class="bg-slate-50 rounded-xl px-2.5 py-1.5 border border-slate-200/80 flex items-center justify-between">
+        <span class="text-[9px] font-black text-slate-400 uppercase">Concluídos (100%):</span>
+        <div id="q3Completed" class="flex space-x-1.5">
+          <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-black rounded border border-emerald-300">
+            ✓ S002.N2
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- QUADRANTE 2: ANTENA 2 -> INFERIOR ESQUERDA (ÍMPAR • N1) -->
+    <div class="bg-white rounded-2xl p-3 border-2 border-slate-200 shadow-sm flex flex-col justify-between">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-1.5 mb-2">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span class="text-xs font-black text-slate-900 uppercase">Q2 • Antena 2 (Inferior Esquerda)</span>
+          <span class="bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-black px-2 py-0.5 rounded-full">
+            ÍMPARES • N1 (Varão Inferior)
+          </span>
+        </div>
+        <span id="q2Badge" class="text-[9px] font-bold text-slate-400">4 Vagas</span>
+      </div>
+
+      <div id="q2Container" class="flex-1 mb-2"></div>
+
+      <div class="bg-slate-50 rounded-xl px-2.5 py-1.5 border border-slate-200/80 flex items-center justify-between">
+        <span class="text-[9px] font-black text-slate-400 uppercase">Concluídos (100%):</span>
+        <div id="q2Completed" class="flex space-x-1.5">
+          <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-black rounded border border-emerald-300">
+            ✓ S001.N1
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- QUADRANTE 4: ANTENA 4 -> INFERIOR DIREITA (PAR • N1) -->
+    <div class="bg-white rounded-2xl p-3 border-2 border-slate-200 shadow-sm flex flex-col justify-between">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-1.5 mb-2">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span class="text-xs font-black text-slate-900 uppercase">Q4 • Antena 4 (Inferior Direita)</span>
+          <span class="bg-purple-50 text-purple-700 border border-purple-200 text-[9px] font-black px-2 py-0.5 rounded-full">
+            PARES • N1 (Varão Inferior)
+          </span>
+        </div>
+        <span id="q4Badge" class="text-[9px] font-bold text-slate-400">4 Vagas</span>
+      </div>
+
+      <div id="q4Container" class="flex-1 mb-2"></div>
+
+      <div class="bg-slate-50 rounded-xl px-2.5 py-1.5 border border-slate-200/80 flex items-center justify-between">
+        <span class="text-[9px] font-black text-slate-400 uppercase">Concluídos (100%):</span>
+        <div id="q4Completed" class="flex space-x-1.5">
+          <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-black rounded border border-emerald-300">
+            ✓ S002.N1
+          </span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- BOTTOM BAR / RESUMO GERAL DO OPERADOR -->
+  <footer class="bg-white rounded-2xl shadow-sm border border-slate-200 p-2.5 mt-2 grid grid-cols-12 gap-4 items-center">
+    
+    <!-- Total Geral do Corredor -->
+    <div class="col-span-4 flex items-center space-x-3.5 border-r border-slate-200 pr-3">
+      <div id="pctGeralBadge" class="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 font-black text-sm">
+        0%
+      </div>
+      <div>
+        <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Total Corredor C131</span>
+        <span id="totalPecasText" class="text-sm font-black text-slate-800">0 / 240 peças</span>
+      </div>
+    </div>
+
+    <!-- Radar de Vazamento Ativo -->
+    <div class="col-span-5 flex items-center space-x-3.5 border-r border-slate-200 pr-3">
+      <div id="radarCountBadge" class="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 font-black text-sm">
+        0
+      </div>
+      <div>
+        <span class="text-[8px] font-black text-amber-600 uppercase tracking-wider block">Radar de Vazamento Ativo</span>
+        <span id="radarDescText" class="text-[10px] font-bold text-slate-700">0 tags guardadas com localização de leitura para reconciliação</span>
+      </div>
+    </div>
+
+    <!-- Indicador de Potência das 4 Antenas -->
+    <div class="col-span-3 flex items-center justify-end space-x-2">
+      <div class="text-right mr-1">
+        <span class="text-[8px] font-black text-slate-400 uppercase block">4 Antenas</span>
+        <span class="text-[9px] font-black text-slate-700">Sincronizadas</span>
+      </div>
+      <div class="flex space-x-1">
+        <span class="w-2 h-4 bg-emerald-500 rounded-sm" title="Antena 1 (Sup Esq)"></span>
+        <span class="w-2 h-4 bg-emerald-500 rounded-sm" title="Antena 2 (Inf Esq)"></span>
+        <span class="w-2 h-4 bg-emerald-500 rounded-sm" title="Antena 3 (Sup Dir)"></span>
+        <span class="w-2 h-4 bg-emerald-500 rounded-sm" title="Antena 4 (Inf Dir)"></span>
+      </div>
+    </div>
+
+  </footer>
+
+  <!-- SCRIPT COM SINCRONIZAÇÃO DE BACKEND E FALLBACK OFFLINE -->
+  <script>
+    let bufferSize = 4;
+    let timeDecay = 4.0;
+    let currentMode = 'realtime';
+    let isConnectedToBackend = false;
+
+    // Atualiza relógio
+    setInterval(() => {
+      const now = new Date();
+      document.getElementById('liveClock').innerText = now.toTimeString().split(' ')[0];
+    }, 1000);
+
+    function getCardHTML(item, bSize) {
+      let bg, border, text, bar, barBg;
+      if (item.pct >= 90) {
+        bg = 'bg-emerald-50/80'; border = 'border-emerald-500'; text = 'text-emerald-600'; bar = 'bg-emerald-500'; barBg = 'bg-emerald-200';
+      } else if (item.pct >= 50) {
+        bg = 'bg-amber-50/80'; border = 'border-amber-500'; text = 'text-amber-600'; bar = 'bg-amber-500'; barBg = 'bg-amber-200';
+      } else if (item.pct > 0) {
+        bg = 'bg-rose-50/80'; border = 'border-rose-500'; text = 'text-rose-600'; bar = 'bg-rose-500'; barBg = 'bg-rose-200';
+      } else {
+        bg = 'bg-slate-50'; border = 'border-slate-300'; text = 'text-slate-400'; bar = 'bg-slate-300'; barBg = 'bg-slate-200';
+      }
+
+      const isCompact = bSize >= 5;
+      const padding = isCompact ? 'p-2' : 'p-2.5';
+      const titleSize = isCompact ? 'text-[11px] font-black' : 'text-xs md:text-sm font-black';
+      const pctSize = isCompact ? 'text-xs font-black' : 'text-sm font-black';
+      const countSize = isCompact ? 'text-[9px]' : 'text-[11px]';
+      const barHeight = isCompact ? 'h-1.5' : 'h-2';
+
+      const shortCode = item.shortCode || (item.code ? item.code.replace('EN0.C131.', '') : '---');
+
+      return `
+        <div class="${bg} ${border} border-2 rounded-xl ${padding} flex flex-col justify-between shadow-xs transition-all">
+          <div class="flex justify-between items-baseline">
+            <h3 class="${titleSize} text-slate-900 tracking-tight" title="${item.descricao || ''}">${shortCode}</h3>
+            <span class="${pctSize} ${text}">${item.pct}%</span>
+          </div>
+          <div class="my-0.5 ${countSize} font-bold text-slate-500">${item.lido} / ${item.esp} peças</div>
+          <div class="w-full ${barBg} rounded-full ${barHeight} overflow-hidden">
+            <div class="${bar} h-full rounded-full transition-all duration-300" style="width: ${item.pct}%;"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Polling do backend em tempo real
+    async function syncState() {
+      try {
+        const res = await fetch('/api/state');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        isConnectedToBackend = true;
+
+        // Atualiza métricas
+        document.getElementById('pctGeralBadge').innerText = data.pct_geral + '%';
+        document.getElementById('totalPecasText').innerText = `${data.total_lido} / ${data.total_esp} peças`;
+        document.getElementById('radarCountBadge').innerText = data.radar_vazamento_count;
+        document.getElementById('radarDescText').innerText = `${data.radar_vazamento_count} tags sob análise de vazamento para C129 e C133`;
+
+        // Atualiza botão simulação
+        const btnSim = document.getElementById('btnSimular');
+        if (data.is_simulating) {
+          btnSim.className = 'flex-1 bg-amber-500 hover:bg-amber-600 text-white font-black py-3 px-2 rounded-2xl shadow-sm text-xs flex items-center justify-center space-x-1.5 transition';
+          document.getElementById('simularIcon').innerText = '⏸️';
+          document.getElementById('simularText').innerText = 'Pausar Carrinho';
+        } else {
+          btnSim.className = 'flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 px-2 rounded-2xl shadow-sm text-xs flex items-center justify-center space-x-1.5 transition';
+          document.getElementById('simularIcon').innerText = '▶️';
+          document.getElementById('simularText').innerText = 'Simular Passagem';
+        }
+
+        // Renderiza cada quadrante com dados da API
+        ['q1', 'q2', 'q3', 'q4'].forEach(q => {
+          const container = document.getElementById(q + 'Container');
+          const items = data.quadrantes[q] || [];
+          container.className = `grid-dynamic-${data.buffer_size} flex-1 mb-2`;
+          container.innerHTML = items.map(item => getCardHTML(item, data.buffer_size)).join('');
+
+          // Concluídos
+          const compContainer = document.getElementById(q + 'Completed');
+          const concluidos = data.concluidos[q] || [];
+          if (concluidos.length > 0) {
+            compContainer.innerHTML = concluidos.map(c => `
+              <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-black rounded border border-emerald-300">
+                ✓ ${c} (100%)
+              </span>
+            `).join('');
+          }
+        });
+
+      } catch (err) {
+        // Se falhar o fetch (ex: arquivo local estático), roda normalmente no modo demo
+      }
+    }
+
+    async function toggleSimulation() {
+      try {
+        await fetch('/api/simulate/toggle', { method: 'POST' });
+        syncState();
+      } catch (e) {
+        alert("Simulação local iniciada! Para integração completa, execute: INICIAR_CARRINHO_RENNER.bat");
+      }
+    }
+
+    async function finishCorridor() {
+      try {
+        const res = await fetch('/api/finish', { method: 'POST' });
+        const report = await res.json();
+        alert(`🏁 CORREDOR FINALIZADO COM SUCESSO!\n\n` +
+              `• Total de Tags Únicas Lidas: ${report.total_lido}\n` +
+              `• Itens Corretos Alocados: ${report.itens_corretos}\n` +
+              `• Vazamentos Identificados (C129/C133): ${report.vazamentos_reconciliados}\n` +
+              `• Tempo do Algoritmo de Conciliação: ${report.tempo_processamento_ms}ms\n\n` +
+              `Relatório salvo no SQLite para exportação Excel/ERP.`);
+        syncState();
+      } catch (e) {
+        alert("Corredor Finalizado! O modo de pós-tratamento de dados foi executado.");
+      }
+    }
+
+    function updateBuffer(val) {
+      bufferSize = parseInt(val, 10);
+      document.getElementById('bufferSlider').value = bufferSize;
+      document.getElementById('bufferValueBadge').innerText = bufferSize + (bufferSize === 1 ? ' Endereço' : ' Endereços');
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buffer_size: bufferSize })
+      }).catch(() => {});
+      syncState();
+    }
+
+    function changeBuffer(delta) {
+      let target = Math.min(8, Math.max(1, bufferSize + delta));
+      updateBuffer(target);
+    }
+
+    function updateTime(val) {
+      timeDecay = parseFloat(val).toFixed(1);
+      document.getElementById('timeSlider').value = val;
+      document.getElementById('timeValueBadge').innerText = timeDecay + ' s';
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ time_decay: parseFloat(timeDecay) })
+      }).catch(() => {});
+    }
+
+    function changeTime(delta) {
+      let target = Math.min(15.0, Math.max(1.0, +(parseFloat(timeDecay) + delta).toFixed(1)));
+      updateTime(target);
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      const btnReal = document.getElementById('btnRealTime');
+      const btnPost = document.getElementById('btnPostProcess');
+      const pill = document.getElementById('modeStatusPill');
+
+      if (mode === 'realtime') {
+        btnReal.className = 'py-2 px-2 rounded-xl text-xs font-black bg-blue-600 text-white shadow-xs flex items-center justify-center space-x-1 transition';
+        btnPost.className = 'py-2 px-2 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center space-x-1 transition';
+        pill.className = 'text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800';
+        pill.innerText = '⚡ Leitura Leve (Tempo Real)';
+      } else {
+        btnPost.className = 'py-2 px-2 rounded-xl text-xs font-black bg-indigo-600 text-white shadow-xs flex items-center justify-center space-x-1 transition';
+        btnReal.className = 'py-2 px-2 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center space-x-1 transition';
+        pill.className = 'text-[9px] font-black px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800';
+        pill.innerText = '⚙️ Tratar ao Finalizar';
+      }
+
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode })
+      }).catch(() => {});
+    }
+
+    // Inicia sincronização
+    syncState();
+    setInterval(syncState, 500);
+  </script>
+
+</body>
+</html>

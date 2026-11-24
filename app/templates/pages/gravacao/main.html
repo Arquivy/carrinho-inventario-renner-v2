@@ -1,0 +1,639 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-[1700px] mx-auto px-4 py-6" x-data="gravacaoApp()">
+
+  <!-- Control Header Card -->
+  <div class="bg-white rounded-xl shadow-md border border-slate-200 p-5 mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4 mb-4">
+      
+      <!-- Title & Icon -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-xl shadow-sm">
+          🏷️
+        </div>
+        <div>
+          <h2 class="text-xl font-bold text-slate-900 leading-tight">Bancada de Gravação & Testes RFID Renner</h2>
+          <p class="text-xs text-slate-500 mt-0.5">Codificação de Tags de Endereço e Lote de SKUs ancoradas por TID</p>
+        </div>
+      </div>
+
+      <!-- Real Hardware Reader Status Badge -->
+      <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+        <div class="text-xs font-semibold text-slate-500">Leitor RFID:</div>
+        
+        <template x-if="deviceStatus.connected">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-300">
+              <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              <span x-text="`${deviceStatus.device_name || 'R700'} Conectado`"></span>
+            </span>
+
+            <button @click="toggleReader()"
+              :class="deviceStatus.reading ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'"
+              class="px-3 py-1 rounded text-xs font-bold text-white transition shadow-sm">
+              <span x-text="deviceStatus.reading ? '⏹ Parar Leitor' : '▶ Iniciar Leitor'"></span>
+            </button>
+          </div>
+        </template>
+
+        <template x-if="!deviceStatus.connected">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+              <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+              Aguardando Leitor
+            </span>
+            <a href="/settings/devices" class="text-xs font-semibold text-indigo-600 hover:underline">Configurar</a>
+          </div>
+        </template>
+      </div>
+
+    </div>
+
+    <!-- Corridor & Address Selection -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end bg-slate-50 p-4 rounded-lg border border-slate-200">
+      
+      <!-- Corredor -->
+      <div>
+        <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">1. Corredor</label>
+        <select x-model="selectedCorredor" @change="onCorredorChange()"
+          class="w-full text-sm font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
+          <option value="">Selecione o Corredor...</option>
+          <template x-for="c in corredores" :key="c">
+            <option :value="c" x-text="c"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- Endereço -->
+      <div class="md:col-span-2">
+        <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">2. Endereço do Corredor</label>
+        <select x-model="selectedEndereco" @change="onEnderecoChange()" :disabled="!selectedCorredor"
+          class="w-full text-sm font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 disabled:opacity-50">
+          <option value="">Selecione o Endereço Alvo...</option>
+          <template x-for="a in enderecos" :key="a.endereco">
+            <option :value="a.endereco" x-text="`${a.endereco} (${a.total_quantidade} peças)`"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- Quick Action / Excel -->
+      <div class="flex items-center gap-2">
+        <a href="/" class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-lg transition shadow-sm">
+          📂 Importar Nova Planilha
+        </a>
+      </div>
+
+    </div>
+
+    <!-- R700 Antenna Power Controls (Read & Write Sliders) -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-200">
+      
+      <!-- Read Power Slider -->
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-3.5">
+        <div class="flex justify-between items-center mb-1">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-bold text-slate-800 uppercase tracking-wide">📡 Potência de Leitura (R700)</span>
+            <span class="text-[10px] text-slate-500 font-medium">(Detecção de tags na bancada)</span>
+          </div>
+          <span class="text-xs font-extrabold text-indigo-700 bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded"
+            x-text="`${powerSettings.read_power ? powerSettings.read_power.toFixed(1) : '30.0'} dBm`"></span>
+        </div>
+        <input type="range" :min="powerSettings.min_power || 10" :max="powerSettings.max_power || 33" step="0.5"
+          x-model.number="powerSettings.read_power" @change="updatePowerSettings()"
+          class="w-full accent-indigo-600 cursor-pointer">
+        <div class="flex justify-between text-[10px] text-slate-400 mt-0.5 font-medium">
+          <span>10 dBm (mín)</span>
+          <span>18 dBm</span>
+          <span>25 dBm</span>
+          <span>30 dBm (padrão)</span>
+          <span>33 dBm (máx)</span>
+        </div>
+      </div>
+
+      <!-- Write Power Slider -->
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-3.5">
+        <div class="flex justify-between items-center mb-1">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-bold text-slate-800 uppercase tracking-wide">⚡ Potência de Gravação (R700)</span>
+            <span class="text-[10px] text-slate-500 font-medium">(Gravação ancorada no TID)</span>
+          </div>
+          <span class="text-xs font-extrabold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded"
+            x-text="`${powerSettings.write_power ? powerSettings.write_power.toFixed(1) : '18.0'} dBm`"></span>
+        </div>
+        <input type="range" :min="powerSettings.min_power || 10" :max="powerSettings.max_power || 33" step="0.5"
+          x-model.number="powerSettings.write_power" @change="updatePowerSettings()"
+          class="w-full accent-emerald-600 cursor-pointer">
+        <div class="flex justify-between text-[10px] text-slate-400 mt-0.5 font-medium">
+          <span>10 dBm (foco curto)</span>
+          <span>18 dBm (recomendado)</span>
+          <span>25 dBm</span>
+          <span>30 dBm</span>
+          <span>33 dBm (máx)</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Main Content Grid -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6" x-show="selectedEndereco">
+
+    <!-- LEFT COLUMN: Physical Address Tag Writer (4 cols) -->
+    <div class="lg:col-span-4 space-y-6">
+      
+      <div class="bg-white rounded-xl shadow-md border border-slate-200 p-5">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+          <div class="flex items-center gap-2">
+            <span class="w-7 h-7 rounded bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">📍</span>
+            <h3 class="text-base font-bold text-slate-800">Gravar Tag de Endereço</h3>
+          </div>
+          <span class="text-xs px-2 py-0.5 rounded font-mono bg-indigo-50 text-indigo-700 border border-indigo-200">Handover edc0</span>
+        </div>
+
+        <!-- Endereco Info Box -->
+        <div class="bg-slate-50 rounded-lg p-3.5 border border-slate-200 mb-4 space-y-2">
+          <div class="text-xs text-slate-500 font-semibold">Endereço Selecionado:</div>
+          <div class="text-sm font-mono font-bold text-slate-900 bg-white p-2 rounded border border-slate-200" x-text="selectedEndereco"></div>
+
+          <div class="text-xs text-slate-500 font-semibold pt-1">EPC Gerado Renner (24 hex):</div>
+          <div class="text-xs font-mono font-bold text-indigo-700 bg-indigo-50/60 p-2 rounded border border-indigo-200 break-all" x-text="enderecoDetalhes.address_epc || 'Gerando...'"></div>
+        </div>
+
+        <!-- Target Tag Selection -->
+        <div class="space-y-3 mb-4">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold text-slate-700">TID da Tag Alvo na Bancada:</label>
+            <button @click="refreshTagsBancada()" class="text-xs text-emerald-600 hover:text-emerald-700 font-semibold flex items-center gap-1">
+              🔄 Atualizar
+            </button>
+          </div>
+
+          <select x-model="addressTargetTid"
+            class="w-full text-xs font-mono text-slate-800 bg-white border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-emerald-500">
+            <option value="">Selecione a Tag pelo TID...</option>
+            <template x-for="t in tagsBancada" :key="t.tid">
+              <option :value="t.tid" x-text="`${t.tid} (RSSI: ${t.rssi}dBm)`"></option>
+            </template>
+          </select>
+
+          <!-- Auto-select strongest button -->
+          <button @click="autoSelectAddressTag()" type="button" :disabled="tagsBancada.length === 0"
+            class="w-full text-xs font-semibold py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-300 transition disabled:opacity-50">
+            🎯 Selecionar Tag com Maior Sinal (RSSI)
+          </button>
+        </div>
+
+        <!-- Action Button -->
+        <button @click="gravarTagEndereco()" :disabled="!addressTargetTid || isWritingAddress"
+          class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-lg shadow transition flex items-center justify-center gap-2 disabled:opacity-50">
+          <template x-if="isWritingAddress">
+            <span class="inline-block animate-spin mr-1">⏳</span>
+          </template>
+          <span>🏷️ Gravar Tag de Endereço no TID</span>
+        </button>
+
+        <!-- Feedback alert -->
+        <template x-if="addressWriteMessage">
+          <div class="mt-3 p-3 rounded-lg text-xs font-semibold"
+            :class="addressWriteSuccess ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'"
+            x-text="addressWriteMessage">
+          </div>
+        </template>
+      </div>
+
+      <!-- Workbench Detected Tags Summary Card -->
+      <div class="bg-white rounded-xl shadow-md border border-slate-200 p-5">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+            <h4 class="text-sm font-bold text-slate-800">Tags na Bancada</h4>
+          </div>
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700" x-text="`${tagsBancada.length} detectadas`"></span>
+        </div>
+
+        <div class="flex gap-2 mb-3">
+          <button @click="clearTagsBancada()"
+            class="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded border border-slate-300 transition">
+            🧹 Limpar Tags
+          </button>
+          <button @click="refreshTagsBancada()"
+            class="flex-1 py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded border border-emerald-200 transition">
+            🔄 Ler Agora
+          </button>
+        </div>
+
+        <!-- Tag List scrollable -->
+        <div class="max-h-64 overflow-y-auto space-y-1.5 pr-1">
+          <template x-for="t in tagsBancada" :key="t.tid">
+            <div class="p-2 rounded bg-slate-50 border border-slate-200 text-xs flex flex-col gap-0.5">
+              <div class="flex justify-between items-center">
+                <span class="font-mono font-bold text-slate-800" x-text="t.tid"></span>
+                <span class="text-slate-500 font-semibold" x-text="`${t.rssi} dBm`"></span>
+              </div>
+              <div class="text-[10px] font-mono text-slate-500 truncate" x-text="`EPC: ${t.epc}`"></div>
+              <div class="flex justify-between text-[10px]">
+                <span class="text-slate-600 font-medium" x-text="t.tag_type"></span>
+                <span class="text-emerald-700 font-semibold" x-text="t.decoded_info || ''"></span>
+              </div>
+            </div>
+          </template>
+          <template x-if="tagsBancada.length === 0">
+            <div class="text-center py-6 text-slate-400 text-xs">
+              Nenhuma tag detectada na bancada.<br>Ligue o leitor e aproxime as tags.
+            </div>
+          </template>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: Batch SKU Tags Writer (8 cols) -->
+    <div class="lg:col-span-8 space-y-6">
+      
+      <div class="bg-white rounded-xl shadow-md border border-slate-200 p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-4">
+          <div>
+            <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+              <span>📦</span>
+              <span>Gravação em Lote dos SKUs do Endereço</span>
+            </h3>
+            <p class="text-xs text-slate-500 mt-0.5">
+              Total de itens: <span class="font-bold text-slate-800" x-text="enderecoDetalhes.total_pecas || 0"></span> peças esperadas
+            </p>
+          </div>
+
+          <!-- Actions Header -->
+          <div class="flex items-center gap-2">
+            <button @click="autoAssignTidsToSkus()" :disabled="tagsBancada.length === 0"
+              class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg transition shadow-sm flex items-center gap-1.5 disabled:opacity-50">
+              ⚡ Vincular TIDs Automaticamente
+            </button>
+
+            <button @click="gravarLoteSkus()" :disabled="!hasAssignedTids || isWritingBatch"
+              class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition shadow-sm flex items-center gap-1.5 disabled:opacity-50">
+              <template x-if="isWritingBatch">
+                <span class="inline-block animate-spin mr-1">⏳</span>
+              </template>
+              🚀 Gravar Lote Ancorado no TID
+            </button>
+          </div>
+        </div>
+
+        <!-- Batch Write Progress Bar -->
+        <template x-if="batchProgress.total > 0">
+          <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
+            <div class="flex justify-between items-center text-xs font-semibold mb-1">
+              <span class="text-slate-700" x-text="`Progresso da Gravação: ${batchProgress.current}/${batchProgress.total} tags`"></span>
+              <span class="text-emerald-700 font-bold" x-text="`${batchProgress.percent}%`"></span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+              <div class="bg-emerald-600 h-2.5 rounded-full transition-all duration-300" :style="`width: ${batchProgress.percent}%`"></div>
+            </div>
+          </div>
+        </template>
+
+        <!-- SKUs Target Table -->
+        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+          <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
+            <thead class="bg-slate-50 text-slate-700 uppercase font-bold text-[11px] tracking-wider">
+              <tr>
+                <th class="px-3 py-2.5">#</th>
+                <th class="px-3 py-2.5">SKU Renner</th>
+                <th class="px-3 py-2.5">Serial</th>
+                <th class="px-3 py-2.5">Target EPC (24 hex)</th>
+                <th class="px-3 py-2.5">TID Vinculado (Bancada)</th>
+                <th class="px-3 py-2.5 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 bg-white">
+              <template x-for="item in enderecoDetalhes.sku_targets" :key="item.item_idx">
+                <tr class="hover:bg-slate-50 transition" :class="item.status === 'Sucesso' ? 'bg-green-50/50' : (item.status === 'Erro' ? 'bg-red-50/50' : '')">
+                  <td class="px-3 py-2 font-semibold text-slate-500" x-text="item.item_idx"></td>
+                  <td class="px-3 py-2 font-bold text-slate-900" x-text="item.sku"></td>
+                  <td class="px-3 py-2 font-mono text-slate-600" x-text="item.serial"></td>
+                  <td class="px-3 py-2 font-mono text-indigo-700 text-[11px]" x-text="item.epc_target"></td>
+                  
+                  <!-- TID selector or assigned -->
+                  <td class="px-3 py-2">
+                    <select x-model="item.target_tid"
+                      class="text-xs font-mono text-slate-800 bg-white border border-slate-300 rounded px-2 py-1 w-full max-w-[200px] focus:ring-1 focus:ring-emerald-500">
+                      <option value="">Vincular TID...</option>
+                      <template x-for="t in tagsBancada" :key="t.tid">
+                        <option :value="t.tid" x-text="t.tid"></option>
+                      </template>
+                    </select>
+                  </td>
+
+                  <!-- Status Badge -->
+                  <td class="px-3 py-2 text-center">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold"
+                      :class="{
+                        'bg-slate-100 text-slate-700': item.status === 'Pendente',
+                        'bg-blue-100 text-blue-800 animate-pulse': item.status === 'Gravando',
+                        'bg-green-100 text-green-800 border border-green-300': item.status === 'Sucesso',
+                        'bg-red-100 text-red-800 border border-red-300': item.status === 'Erro'
+                      }"
+                      x-text="item.status">
+                    </span>
+                  </td>
+                </tr>
+              </template>
+
+              <template x-if="!enderecoDetalhes.sku_targets || enderecoDetalhes.sku_targets.length === 0">
+                <tr>
+                  <td colspan="6" class="px-4 py-8 text-center text-slate-400">
+                    Selecione um endereço para carregar a lista de SKUs a gravar.
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Empty State when no address selected -->
+  <div class="bg-white rounded-xl shadow-md border border-slate-200 p-12 text-center" x-show="!selectedEndereco">
+    <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-2xl mx-auto mb-4">
+      🏷️
+    </div>
+    <h3 class="text-lg font-bold text-slate-800 mb-1">Selecione um Corredor e Endereço para Gravação</h3>
+    <p class="text-sm text-slate-500 max-w-md mx-auto">
+      Escolha o corredor e o endereço no painel acima para gerar o EPC da tag de endereço e a lista de SKUs com números de série sequenciais.
+    </p>
+  </div>
+
+</div>
+
+<script>
+function gravacaoApp() {
+  return {
+    corredores: [],
+    enderecos: [],
+    selectedCorredor: '',
+    selectedEndereco: '',
+    enderecoDetalhes: {
+      address_epc: null,
+      total_pecas: 0,
+      sku_targets: []
+    },
+    tagsBancada: [],
+    addressTargetTid: '',
+    isWritingAddress: false,
+    addressWriteMessage: null,
+    addressWriteSuccess: false,
+    isWritingBatch: false,
+    batchProgress: { current: 0, total: 0, percent: 0 },
+    deviceStatus: { connected: false, reading: false, device_name: null },
+    powerSettings: { read_power: 30.0, write_power: 18.0, min_power: 10.0, max_power: 33.0 },
+    pollingInterval: null,
+
+    async init() {
+      await this.loadCorredores();
+      await this.checkDeviceStatus();
+      await this.loadPowerSettings();
+      await this.refreshTagsBancada();
+
+      // Poll tags on workbench and device status every 2 seconds
+      this.pollingInterval = setInterval(async () => {
+        await this.checkDeviceStatus();
+        if (this.deviceStatus.reading) {
+          await this.refreshTagsBancada();
+        }
+      }, 2000);
+    },
+
+    async checkDeviceStatus() {
+      try {
+        const res = await fetch('/api/v1/carrinho/device_status');
+        if (res.ok) {
+          this.deviceStatus = await res.json();
+        }
+      } catch (e) {
+        console.error('Erro status dispositivo:', e);
+      }
+    },
+
+    async loadPowerSettings() {
+      try {
+        const res = await fetch('/api/v1/gravacao/power_settings');
+        if (res.ok) {
+          this.powerSettings = await res.json();
+        }
+      } catch (e) {
+        console.error('Erro ao carregar potencias:', e);
+      }
+    },
+
+    async updatePowerSettings() {
+      try {
+        const res = await fetch('/api/v1/gravacao/power_settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            read_power: this.powerSettings.read_power,
+            write_power: this.powerSettings.write_power
+          })
+        });
+        if (res.ok) {
+          this.powerSettings = await res.json();
+        }
+      } catch (e) {
+        console.error('Erro ao atualizar potencias:', e);
+      }
+    },
+
+    async toggleReader() {
+      try {
+        const res = await fetch('/api/v1/gravacao/toggle_reading', { method: 'POST' });
+        if (res.ok) {
+          await this.checkDeviceStatus();
+          await this.refreshTagsBancada();
+        }
+      } catch (e) {
+        console.error('Erro toggle reader:', e);
+      }
+    },
+
+    async loadCorredores() {
+      try {
+        const res = await fetch('/api/v1/gravacao/corredores');
+        const data = await res.json();
+        this.corredores = data.corredores || [];
+        if (this.corredores.length > 0 && !this.selectedCorredor) {
+          this.selectedCorredor = this.corredores[0];
+          await this.onCorredorChange();
+        }
+      } catch (e) {
+        console.error('Erro carregando corredores:', e);
+      }
+    },
+
+    async onCorredorChange() {
+      this.selectedEndereco = '';
+      this.enderecos = [];
+      this.enderecoDetalhes = { address_epc: null, total_pecas: 0, sku_targets: [] };
+      if (!this.selectedCorredor) return;
+
+      try {
+        const res = await fetch(`/api/v1/gravacao/enderecos/${this.selectedCorredor}`);
+        const data = await res.json();
+        this.enderecos = data.enderecos || [];
+        if (this.enderecos.length > 0) {
+          this.selectedEndereco = this.enderecos[0].endereco;
+          await this.onEnderecoChange();
+        }
+      } catch (e) {
+        console.error('Erro ao buscar endereços:', e);
+      }
+    },
+
+    async onEnderecoChange() {
+      if (!this.selectedCorredor || !this.selectedEndereco) return;
+      this.addressWriteMessage = null;
+      try {
+        const url = `/api/v1/gravacao/endereco_detalhes?corredor=${encodeURIComponent(this.selectedCorredor)}&endereco=${encodeURIComponent(this.selectedEndereco)}`;
+        const res = await fetch(url);
+        this.enderecoDetalhes = await res.json();
+      } catch (e) {
+        console.error('Erro detalhes do endereço:', e);
+      }
+    },
+
+    async refreshTagsBancada() {
+      try {
+        const res = await fetch('/api/v1/gravacao/tags_na_bancada');
+        const data = await res.json();
+        this.tagsBancada = data.tags || [];
+      } catch (e) {
+        console.error('Erro tags bancada:', e);
+      }
+    },
+
+    async clearTagsBancada() {
+      try {
+        await fetch('/api/v1/gravacao/clear_tags_bancada', { method: 'POST' });
+        this.tagsBancada = [];
+        this.addressTargetTid = '';
+      } catch (e) {
+        console.error('Erro limpando bancada:', e);
+      }
+    },
+
+    autoSelectAddressTag() {
+      if (this.tagsBancada.length === 0) return;
+      // Find tag with highest RSSI (least negative)
+      let best = this.tagsBancada[0];
+      for (const t of this.tagsBancada) {
+        if (t.rssi > best.rssi) best = t;
+      }
+      this.addressTargetTid = best.tid;
+    },
+
+    async gravarTagEndereco() {
+      if (!this.selectedEndereco || !this.addressTargetTid) return;
+      this.isWritingAddress = true;
+      this.addressWriteMessage = null;
+
+      try {
+        const res = await fetch('/api/v1/gravacao/gravar_tag_endereco', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            endereco: this.selectedEndereco,
+            target_tid: this.addressTargetTid
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.addressWriteSuccess = true;
+          this.addressWriteMessage = `Tag de endereço gravada com sucesso! EPC: ${data.epc_gravado}`;
+          await this.refreshTagsBancada();
+        } else {
+          this.addressWriteSuccess = false;
+          this.addressWriteMessage = `Erro: ${data.error || 'Falha ao gravar tag'}`;
+        }
+      } catch (e) {
+        this.addressWriteSuccess = false;
+        this.addressWriteMessage = `Erro de conexão: ${e.message}`;
+      } finally {
+        this.isWritingAddress = false;
+      }
+    },
+
+    autoAssignTidsToSkus() {
+      if (!this.enderecoDetalhes.sku_targets || this.tagsBancada.length === 0) return;
+      // Filter out address target TID if selected
+      const availableTids = this.tagsBancada
+        .map(t => t.tid)
+        .filter(tid => tid !== this.addressTargetTid);
+
+      this.enderecoDetalhes.sku_targets.forEach((item, idx) => {
+        if (idx < availableTids.length) {
+          item.target_tid = availableTids[idx];
+        }
+      });
+    },
+
+    get hasAssignedTids() {
+      if (!this.enderecoDetalhes.sku_targets) return false;
+      return this.enderecoDetalhes.sku_targets.some(item => !!item.target_tid);
+    },
+
+    async gravarLoteSkus() {
+      const targetsToWrite = this.enderecoDetalhes.sku_targets.filter(item => !!item.target_tid);
+      if (targetsToWrite.length === 0) return;
+
+      this.isWritingBatch = true;
+      this.batchProgress = { current: 0, total: targetsToWrite.length, percent: 0 };
+
+      // Mark status as Gravando
+      targetsToWrite.forEach(item => item.status = 'Gravando');
+
+      try {
+        const payload = {
+          endereco: this.selectedEndereco,
+          items: targetsToWrite.map(t => ({
+            sku: t.sku,
+            serial: t.serial,
+            target_tid: t.target_tid,
+            target_epc: t.epc_target
+          }))
+        };
+
+        const res = await fetch('/api/v1/gravacao/gravar_skus_lote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (res.ok && data.detalhes) {
+          data.detalhes.forEach(result => {
+            const target = this.enderecoDetalhes.sku_targets.find(t => t.target_tid === result.tid);
+            if (target) {
+              target.status = result.status;
+            }
+          });
+          this.batchProgress.current = data.total;
+          this.batchProgress.percent = 100;
+        } else {
+          targetsToWrite.forEach(t => t.status = 'Erro');
+        }
+      } catch (e) {
+        console.error('Erro na gravação em lote:', e);
+        targetsToWrite.forEach(t => t.status = 'Erro');
+      } finally {
+        this.isWritingBatch = false;
+        await this.refreshTagsBancada();
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

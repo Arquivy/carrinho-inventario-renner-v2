@@ -160,8 +160,7 @@ cython_debug/
 #.idea/
 license.txt
 
-Logs*
-logs*
-TEMP*
-config*
+Logs/
+logs/
+TEMP/
 *.db

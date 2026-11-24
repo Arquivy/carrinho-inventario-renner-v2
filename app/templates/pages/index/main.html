@@ -1,0 +1,34 @@
+{% extends "base.html" %} {% block content %}
+<!-- Main Layout Container -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-5 pb-5 px-4">
+  <div class="lg:col-span-3 space-y-4">
+    {% include 'includes/_events.html' %} {% include 'includes/_devices.html' %}
+  </div>
+  <div class="lg:col-span-9">
+    <div class="flex flex-col md:flex-row items-stretch gap-4 mb-4">
+      <div class="flex-1">
+        {% include 'includes/_placeholder.html' %}
+      </div>
+      <div class="flex flex-col justify-center gap-2 md:w-72">
+        {% include 'includes/_file_uploader.html' %}
+        <a href="/carrinho"
+          class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 text-center">
+          🛒 Abrir Modo Leitura Carrinho
+        </a>
+        {% include 'pages/index/_get_comparison.html' %}
+      </div>
+    </div>
+
+
+    {% if table == "complete" or only_complete_table %}
+    {% include 'includes/_tags_all.html' %}
+    {% elif table == "gtin" %}
+    {% include 'includes/_tags_gtin.html' %}
+    {% elif table == "by_ant" %}
+    {% include 'includes/_tags_by_ant.html' %}
+    {% else %}
+    {% include 'includes/_tags.html' %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

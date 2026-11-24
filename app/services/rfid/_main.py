@@ -73,6 +73,14 @@ class RfidManager:
 		# EXISTING TAG
 		elif tag is not None:
 			self.controller.on_existing_tag(name=name, tag=tag)
+
+		# Forward to Carrinho dynamic engine
+		try:
+			from app.routers.api.v1.carrinho import carrinho_engine
+			carrinho_engine.on_tag_read(tag or tag_data)
+		except Exception:
+			pass
+
 		return new_tag, tag
 
 	# [ X-SCAN]

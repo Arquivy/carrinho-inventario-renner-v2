@@ -1,154 +1,114 @@
 # 📋 HANDOVER: Carrinho de Inventário RFID Renner
 
 > **Documento de Transição Técnica e Continuidade de Desenvolvimento**  
-> **Data de Emissão:** 20 de Novembro de 2026  
-> **Localização do Projeto:** `C:\Users\ivan_\Documents\carrinho inventario Renner`  
-> **Status:** Base estruturada, especificações técnicas consolidadas, mockup de alta fidelidade gerado, pronto para implementação do pipeline de inventário e interface dedicada.
+> **Última Atualização:** 24 de Novembro de 2026  
+> **Localização Original:** `C:\Users\ivan_\Documents\carrinho inventario Renner`  
+> **Status:** Sistema funcional com leitor Impinj R700 operando em **LLRP** (`R420`), aba **Bancada & Gravação** com sliders de potência de leitura/gravação, **Carrinho RFID** com ativação dinâmica de fila por tag `edc0` e buffer temporal, e **Planilha de Teste de Vazamento** (`C129`, `C131`, `C133`) carregada.
 
 ---
 
 ## 1. 🎯 Visão Geral do Projeto
 
-O **Carrinho de Inventário da Renner** é uma solução de automação e conferência de estoque móvel desenvolvida para as lojas e centros de distribuição da **Lojas Renner**. O sistema opera embarcado em um carrinho móvel equipado com leitor RFID e antenas direcionadas, empurrado por um operador ao longo dos corredores de cabides/araras de roupas.
-
-### Objetivos Principais
-1. **Inventário Rápido em Movimento contínuo:** Realizar a contagem total de itens sem a necessidade de o operador parar o carrinho a cada arara ou lote de peças.
-2. **Associação Dinâmica a Endereços Físicos:** Identificar tags de referência de endereço físico (`edc0`) fixadas nas araras e atribuir as peças lidas antes e depois ao endereço correspondente.
-3. **Mitigação Inteligente de "Vazamento" (Crosstalk / Leakage):** Evitar a leitura indevida de peças de corredores adjacentes ou araras traseiras através de regras topológicas (`C - 2` e `C + 2`), orientação de antenas e filtragem temporal/espacial.
-4. **Interface Operacional em Tempo Real:** Dashboard visual responsivo com feedback imediato por código de cores (Vermelho, Amarelo, Verde) do progresso de cada endereço e alertas de risco.
+O **Carrinho de Inventário da Renner** é uma solução de automação e conferência de estoque móvel para os centros de distribuição e lojas da **Lojas Renner**. O sistema combina:
+1. **Home (`/`):** Importação de planilha Excel/CSV (offline via SheetJS local), seleção de corredor, gerenciamento de dispositivos e tabela comparativa de estoque.
+2. **Carrinho RFID (`/carrinho`):** Dashboard operacional em 4 quadrantes (Antenas 1 a 4) com ativação dinâmica por tags de endereço (`edc0...`) e reconciliação temporal de SKUs pré-lidos.
+3. **Bancada & Gravação (`/gravacao`):** Ferramenta de preparação para gravar tags físicas de endereço e lotes de SKUs ancoradas estritamente no **TID** (evitando crosstalk) com controle independente de potência de leitura e gravação.
 
 ---
 
-## 2. 🛠️ Tecnologias Utilizadas e Arquitetura
+## 2. 🛠️ Stack & Arquitetura Atual
 
-### Stack de Software
-- **Linguagem:** Python 3.11+
-- **Framework Web Backend:** [FastAPI](https://fastapi.tiangolo.com/) com servidor assíncrono [Uvicorn](https://www.uvicorn.org/)
-- **Gerenciador de Dependências:** [Poetry](https://python-poetry.org/)
-- **Frontend / UI:** Jinja2 Templates, Tailwind CSS (via Tailwind CDN / static JS), Alpine.js para reatividade e WebSockets para streaming de leituras em tempo real
-- **Banco de Dados Local:** SQLite via [SQLAlchemy](https://www.sqlalchemy.org/) e migrações estruturadas via [Alembic](https://alembic.sqlalchemy.org/)
-- **SDK & Protocolo RFID:** Biblioteca `smartx-rfid` (v12.8.5), decodificação nativa do padrão EPC Gen2 / Gen2X da Lojas Renner
-- **Observabilidade:** Métricas integradas via Prometheus (`prometheus-fastapi-instrumentator`)
-- **Empacotamento Desktop:** Suporte a PyInstaller (`scripts/build_exe.py`) e System Tray (`pystray`)
+- **Linguagem:** Python 3.11+ (gerenciado via **Poetry**)
+- **Backend:** FastAPI + Uvicorn (porta padrão `8000`)
+- **Frontend:** Jinja2 + Tailwind CSS + Alpine.js + SheetJS local (`app/static/js/xlsx.full.min.js`)
+- **Banco de Dados:** SQLite (`database.db`) via SQLAlchemy (`Event`, `Inventory`, `Tag`)
+- **SDK RFID:** `smartx-rfid` (v12.8.5) + `sllurp` (LLRP)
 
-### Hardware e Infraestrutura Física
-- **Leitor RFID Principal:** Impinj Speedway / Revolution **R700** (conexão Ethernet TCP/IP ou IoT Device Interface).
-- **Arranjo de Antenas (4 Antenas):**
-  - **Antena 1:** Superior Esquerda (Arara Alta Esquerda)
-  - **Antena 2:** Inferior Esquerda (Arara Baixa Esquerda)
-  - **Antena 3:** Superior Direita (Arara Alta Direita)
-  - **Antena 4:** Inferior Direita (Arara Baixa Direita)
-- **Modos de Operação de Antena:** Bilateral (ambos os lados simultâneos) ou Unilateral (inventário focado em apenas um dos lados).
-- **Tags de Endereço Físico:** Tags de alta durabilidade com prefixo de identificação `edc0`, fixadas no início de cada pack/seção de cabides na arara.
-- **Tags de Produto:** Tags EPC Gen2 UHF fixadas nos vestuários, decodificáveis para SKU e Serial.
+### Hardware & Configuração Crítica do Leitor Impinj R700
+- **IP do Leitor:** `192.168.1.21` (`config/devices/impinj-17-39-4a.json`)
+- **Firmware do Leitor:** `8.2.3` (`"firmware_version": null` configurado para não bloquear conexão)
+- **Descoberta Crítica (REST vs LLRP):**
+  - O firmware `8.2.3` do R700 **não possui** o endpoint REST `/api/v1/profiles/inventory/tag-access` (introduzido apenas no firmware 8.4.x+), o que causava `404 Not Found` (`ERROR POSTING WRITE COMMAND`) ao tentar gravar via driver `R700_IOT`.
+  - **Solução Implementada:** O leitor R700 foi comutado para a interface **`llrp`** (porta `5084`) e configurado no projeto com `"reader": "R420"` (driver LLRP nativo do `smartx_rfid`), que suporta leitura contínua de EPC + TID + RSSI e gravação nativa `C1G2Write` ancorada no TID.
+  - Se o leitor for reiniciado ou resetado para REST em outro ambiente, basta enviar `PUT https://192.168.1.21/api/v1/system/rfid/interface` com `{"rfidInterface": "llrp"}`.
 
 ---
 
-## 3. 🧠 Decisões Técnicas Tomadas
+## 3. ✅ Funcionalidades Já Implementadas e Testadas
 
-### A. Topologia de Corredores e Risco de Vazamento
-- **Numeração Par/Ímpar:** Em lojas Renner, os corredores são segregados: corredores ímpares ficam de um lado do salão/depósito e pares do outro.
-- **Regra dos Vizinhos Laterais:** O corredor lateral adjacente a um corredor $C$ é sempre **$C - 2$** e **$C + 2$** (exemplo: para o corredor 131, os vizinhos são 129 e 133).
-- **Carga Preventiva:** Ao selecionar o corredor ativo no sistema, o software carrega a lista de SKUs esperados do corredor selecionado e também dos corredores vizinhos ($C \pm 2$).
-- **Marcador Visual de Vazamento (`*`):** Se uma peça lida no corredor atual possui SKU esperado no corredor vizinho ($C-2$ ou $C+2$), ela recebe automaticamente o alerta com asterisco `*` na tabela do operador para alertar sobre possível leitura através da divisória/arara.
+### A. Codec RFID Renner (`app/services/rfid/renner_codec.py`)
+- **Tag de Endereço (`edc0`):** `renner_serialize_epc_by_address("EN0.C131.S001.N1.0")` → `edc000000131000100010000` (24 hex) e decodificação reversa `renner_get_address_by_epc`.
+- **Tag de SKU:** `renner_get_epc_from_sku(sku, serial)` → `0000{sku:012x}{serial:08x}` (24 hex com serial sequencial não repetitivo) e `get_renner_sku`.
 
-### B. Atribuição Dinâmica de Endereços (`edc0`)
-- **Movimento Fluido:** O carrinho não para. Ao ler uma tag de endereço `edc0`, o sistema abre uma janela de contexto para aquele endereço.
-- **Janela de Sensibilidade Temporal:** Tags de produtos lidas dentro de uma janela de tempo configurável em torno da detecção do endereço físico são associadas a ele.
-- **Janela de Tolerância por Contagem de Endereços:** Se novos endereços continuarem sendo detectados (ex: já se passaram 3 endereços à frente) e de repente surgir uma tag pertencente a um endereço muito anterior, essa tag é descartada daquele endereço e rotulada como `FORA_DE_RANGE` (suspeita de peça fora de posição ou vazamento tardio).
-- **Toggles Independentes de Sensibilidade:** O operador ou engenheiro pode ligar/desligar de forma independente:
-  1. O filtro por janela de tempo.
-  2. O filtro por tolerância de quantidade de endereços passados.
+### B. Motor Dinâmico do Carrinho (`/carrinho` e `app/routers/api/v1/carrinho.py`)
+- **Mapeamento Físico de 4 Quadrantes:**
+  - Seções **Ímpares** = Esquerda (`Q1` Nível 2 Superior / Antena 1, `Q2` Nível 1 Inferior / Antena 2)
+  - Seções **Pares** = Direita (`Q3` Nível 2 Superior / Antena 3, `Q4` Nível 1 Inferior / Antena 4)
+- **Ativação Dinâmica da Fila:** Os quadrantes iniciam vazios. Um endereço só entra na fila ativa quando sua tag física `edc0...` é lida.
+- **Buffer Pré-leitura com Decaimento Temporal:** SKUs lidos antes da tag de endereço ficam retidos no buffer temporário; quando a tag `edc0` correspondente é lida dentro da janela de decaimento (`time_decay` de 1s a 30s), os SKUs são transferidos automaticamente para o endereço.
+- **Fila Bounded & Vazamento:** Limite configurável por quadrante (`1` a `8` endereços). Leituras de corredores diferentes do selecionado são ignoradas na fila ativa.
+- **Hook em Tempo Real:** `app/services/rfid/_main.py` encaminha toda tag recebida diretamente para `carrinho_engine.on_tag_read()`.
 
-### C. Triangulação Progressiva e Mapeamento
-- As leituras gravam: EPC, SKU decodificado, Antena que leu (1 a 4), Potência da Antena, RSSI médio e Timestamp.
-- Leituras marcadas como `FORA_DE_RANGE` são salvas no banco de dados SQLite local com todos os metadados. Elas servem de subsídio para o algoritmo de triangulação espacial: à medida que os corredores adjacentes são lidos, o sistema cruza as leituras para inferir a posição relativa física das araras.
+### C. Aba de Bancada & Gravação (`/gravacao` e `app/routers/api/v1/gravacao.py`)
+- Seleção de Corredor e Endereço do banco/planilha.
+- Captura das tags presentes na bancada com TID, EPC, RSSI e tipo decodificado.
+- Gravação de **Tag de Endereço** e **Lote de SKUs** ancorada ao **TID** (`target_identifier="tid"`).
+- **Sliders de Potência R700 (`10.0` a `33.0 dBm`):**
+  - *Potência de Leitura:* Atualiza o leitor em tempo real e persiste em `config/devices/impinj-17-39-4a.json`.
+  - *Potência de Gravação:* Aplicada automaticamente no momento da escrita no TID (foco curto para evitar crosstalk) e restaurada para a potência de leitura ao finalizar.
 
-### D. Interface do Operador (UI Dashboard)
-O layout e design da interface já foram validados e renderizados em alta fidelidade no arquivo `mockup_frontend.jpg`:
-1. **Cabeçalho:** Identificação Renner RFID R700, status de conexão online, seletor de corredor ativo e identificação dos vizinhos laterais.
-2. **Barra Dinâmica de Endereços (Cards/Botões):**
-   - 🔴 **Vermelho:** Leitura inferior a 50% do volume de peças esperado.
-   - 🟡 **Amarelo:** Leitura entre 50% e 89% do esperado.
-   - 🟢 **Verde:** Leitura igual ou superior a 90% do esperado.
-   - Exibição de percentual numérico e contagem (Ex: `S003 - 94% [47/50]`).
-3. **Tabela de Leituras em Tempo Real:** Listagem dinâmica com destaque para SKU, descrição, esperado vs. lido, antena capturadora e alerta de vazamento `*`.
-4. **Painel de Antenas & Controles:** Indicador de status das 4 antenas, sliders de tempo de persistência e tolerância de endereços, botões de ação (Iniciar, Pausar, Finalizar e Exportar CSV/Excel).
+### D. Base de Teste de Vazamento (`C129`, `C131`, `C133`)
+- Arquivos gerados na raiz: `planilha_teste_3_corredores.xlsx` e `planilha_teste_3_corredores.csv` (também já carregados no `database.db`).
+- **Estrutura:** 3 corredores vizinhos (`C129`, `C131`, `C133`), 10 endereços por corredor (`S001` a `S005` x `N1`/`N2`), máximo de 20 peças/SKUs por endereço.
 
 ---
 
-## 4. 📂 Estrutura de Arquivos Relevantes
+## 4. 📂 Principais Arquivos do Projeto
 
 ```
 carrinho inventario Renner/
-├── CONVERSA_TRANSCRIPT.jsonl           # Transcrição técnica original com todas as definições
-├── CONVERSA_TRANSCRIPT_SESSAO_ATUAL.jsonl # Transcrição da sessão de handover e migração
-├── HANDOVER.md                         # Este documento de contexto executivo
-├── mockup_frontend.jpg                 # Mockup visual em alta fidelidade da tela do operador
-├── pyproject.toml                      # Configuração Poetry e dependências (smartx-rfid 12.8.5)
-├── poetry.lock                         # Lockfile do ecossistema Python
-├── main.py                             # Ponto de entrada da aplicação FastAPI
+├── HANDOVER.md                            # Este resumo completo para continuidade
+├── main.py                                # Ponto de entrada FastAPI (porta 8000)
+├── database.db                            # SQLite com os 30 endereços de teste (C129, C131, C133)
+├── planilha_teste_3_corredores.xlsx/.csv  # Planilha teste de vazamento (3 corredores, 10 end/corr, <=20 SKU)
+├── config/devices/impinj-17-39-4a.json    # Config do R700 usando driver LLRP ("reader": "R420")
 ├── app/
-│   ├── async_func/
-│   │   └── rfid.py                     # Loop assíncrono de polling/ingestão de leituras RFID
-│   ├── core/
-│   │   ├── build_app.py                # Fábrica de inicialização FastAPI
-│   │   ├── config.py                   # Configurações do sistema
-│   │   └── middleware.py               # Middlewares da aplicação
-│   ├── db/                             # Gerenciador de sessão SQLAlchemy
-│   ├── models/
-│   │   └── rfid.py                     # Modelos ORM de Tags, Eventos e Leituras
 │   ├── routers/
-│   │   ├── api/v1/                     # Endpoints REST (rfid, devices, simulator, etc.)
-│   │   └── pages/                      # Rotas de renderização de páginas HTML
-│   ├── schemas/                        # Validações Pydantic
-│   ├── services/                       # Regras de negócio e integração com leitor R700
-│   ├── static/                         # Arquivos CSS, JS (Tailwind, Alpine), ícones e sons
-│   └── templates/                      # Templates Jinja2 (HTML do dashboard)
-├── docs/
-│   ├── Consulta_Estoque__1_.csv        # Planilhas de exemplo de estoque esperado da Renner
-│   └── dispatches.md                   # Documentação de despachos e eventos
-└── scripts/
-    ├── startup.bat / startup.sh        # Scripts de inicialização
-    └── build_exe.py                    # Script de compilação em executável único
+│   │   ├── api/v1/
+│   │   │   ├── carrinho.py                # Motor dinâmico, fila por quadrante, buffer temporal
+│   │   │   └── gravacao.py                # APIs da bancada, gravação por TID e sliders de potência
+│   │   └── pages/
+│   │       ├── index.py                   # Home (/)
+│   │       ├── carrinho.py                # Página /carrinho
+│   │       └── gravacao.py                # Página /gravacao
+│   ├── services/rfid/
+│   │   ├── _main.py                       # RfidManager + forward em tempo real para carrinho_engine
+│   │   └── renner_codec.py                # Encode/decode edc0 e SKU Renner
+│   ├── static/js/xlsx.full.min.js         # SheetJS offline para importação Excel/CSV
+│   └── templates/
+│       ├── includes/header.html           # Menu superior com abas Carrinho RFID e Bancada & Gravação
+│       └── pages/
+│           ├── carrinho/main.html         # UI 4 Quadrantes + Sliders + Modo Tempo Real/Lote
+│           └── gravacao/main.html         # UI Bancada + Sliders Potência Leitura/Gravação + Lote TID
 ```
 
 ---
 
-## 5. 🚀 Próximos Passos e Pendências Técnicas
+## 5. 🚀 Como Continuar em Outro PC
 
-Para dar continuidade na nova máquina de desenvolvimento, siga a seguinte ordem prioritária:
-
-1. **Instalação e Setup do Ambiente na Nova Máquina:**
+1. **Clonar o repositório e subir o ambiente:**
    ```bash
-   # Clonar o repositório
-   git clone https://github.com/Arquivy/carrinho-inventario-renner.git
-   cd carrinho-inventario-renner
-
-   # Instalar dependências via Poetry
+   git clone https://github.com/Arquivy/carrinho-inventario-renner-v2.git
+   cd carrinho-inventario-renner-v2
    poetry install
-
-   # Executar as migrações do banco de dados local
-   poetry run alembic upgrade head
-
-   # Iniciar o servidor em modo de desenvolvimento
    poetry run python main.py
-   # Acesso: http://localhost:5000
    ```
+   - Acessar no navegador:
+     - Home: `http://localhost:8000/`
+     - Carrinho RFID: `http://localhost:8000/carrinho`
+     - Bancada & Gravação: `http://localhost:8000/gravacao`
 
-2. **Implementar a Lógica do Seletor de Corredor e Vizinhos:**
-   - Criar módulo em `app/services/corridor_service.py` para receber o corredor ativo (ex: `131`) e carregar preventivamente a lista de SKUs esperados de `131`, `129` e `133` a partir das planilhas de estoque (`docs/Consulta_Estoque*.csv`).
-   - Implementar flag `is_leak_risk: bool` para marcar tags com `*` quando o SKU coincidir com o corredor vizinho.
-
-3. **Implementar o Gerenciador de Endereçamento Dinâmico (`edc0`):**
-   - Criar `app/services/address_tracker.py` para processar a fila de tags do leitor.
-   - Detectar tag de endereço `edc0` e chavear o endereço atual do carrinho.
-   - Aplicar a janela de sensibilidade (tempo em segundos e tolerância de `N` endereços passados).
-   - Classificar tags extemporâneas como `FORA_DE_RANGE`.
-
-4. **Desenvolver a Nova Página do Dashboard do Operador:**
-   - Criar `app/templates/pages/cart_inventory/index.html` e a rota correspondente em `app/routers/pages/cart.py`, espelhando fielmente o visual de `mockup_frontend.jpg`.
-   - Implementar WebSockets ou SSE para transmissão ao vivo das leituras para a tabela e atualização da cor dos botões de endereço (Vermelho < 50%, Amarelo 50-89%, Verde >= 90%).
-
-5. **Exportação de Relatório (CSV / Excel):**
-   - Criar endpoint de finalização de corredor que gera o relatório contendo: Corredor, Endereço Físico, EPC, SKU, Descrição, Qtd Esperada, Qtd Lida, Antena, RSSI médio, Potência e Alerta de Vazamento.
+2. **Próximos Passos Recomendados:**
+   - Testar a gravação completa da Tag de Endereço + Lote de SKUs na bancada em LLRP ajustando os sliders de potência de leitura e gravação.
+   - Executar o teste de campo/bancada simulando o corredor `C131` com tags dos corredores `C129` e `C133` próximas para validar a rejeição de vazamento (crosstalk) e calibrar o `time_decay` e a `Potência de Leitura`.
+   - Caso precise de marcação visual explícita de peças suspeitas de vazamento (`C-2` / `C+2`) ou exportação de relatório consolidado pós-inventário do corredor, implementar sobre o `carrinho_engine`.

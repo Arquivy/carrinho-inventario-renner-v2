@@ -1,0 +1,65 @@
+<button x-data="comparisonDownload()" type="button" @click="downloadCsv()" :disabled="downloading"
+    class="items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400">
+    <span x-text="downloading ? 'Gerando relatório...' : 'Baixar comparação CSV'"></span>
+</button>
+<span x-show="message" x-text="message" :class="hasError ? 'text-red-700' : 'text-emerald-700'" class="text-sm"
+    role="status" aria-live="polite"></span>
+
+<script>
+    function comparisonDownload() {
+        const COMPARISON_URL = "{{ url_for('generate_comparison') }}";
+
+        return {
+            downloading: false,
+            message: "",
+            hasError: false,
+
+            async downloadCsv() {
+                this.downloading = true;
+                this.message = "";
+                this.hasError = false;
+
+                try {
+                    const response = await fetch(COMPARISON_URL);
+                    if (!response.ok) {
+                        throw new Error(`Falha ao gerar relatório (HTTP ${response.status})`);
+                    }
+
+                    const rows = await response.json();
+                    if (!Array.isArray(rows)) {
+                        throw new Error("A resposta do relatório não tem o formato esperado.");
+                    }
+                    if (rows.length === 0) {
+                        throw new Error("Não há dados para exportar.");
+                    }
+
+                    const headers = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+                    const escapeCsv = (value) => {
+                        const text = value === null || value === undefined ? "" : String(value);
+                        return `"${text.replace(/"/g, '""')}"`;
+                    };
+                    const csv = [
+                        headers.map(escapeCsv).join(","),
+                        ...rows.map((row) => headers.map((header) => escapeCsv(row[header])).join(",")),
+                    ].join("\r\n");
+
+                    const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+                    const downloadUrl = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = downloadUrl;
+                    link.download = `comparacao_${new Date().toISOString().slice(0, 10)}.csv`;
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+                    this.message = "Download do CSV iniciado.";
+                } catch (error) {
+                    this.hasError = true;
+                    this.message = error.message || "Não foi possível baixar o relatório.";
+                } finally {
+                    this.downloading = false;
+                }
+            },
+        };
+    }
+</script>
