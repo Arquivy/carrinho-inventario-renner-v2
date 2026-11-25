@@ -75,6 +75,18 @@
           ⚡ Simular Leitura (Passo)
         </button>
 
+        <button @click="reconcileLeakages()"
+          :disabled="!(state.leakage_count > 0) || isReconciling"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
+          title="Cruza EPCs lidos entre corredores para posicionar endereços opostos e recuperar SKUs perdidos por vazamento">
+          🔍 Reconciliar Vazamentos (<span x-text="state.leakage_count || 0"></span>)
+        </button>
+
+        <button @click="finalizarEAbrirDashboard()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition">
+          📊 Finalizar &amp; Dashboard
+        </button>
+
         <button @click="resetEngine()"
           class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition">
           🔄 Reiniciar
@@ -83,8 +95,8 @@
 
     </div>
 
-    <!-- Sliders and Processing Mode Row -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+    <!-- Sliders Row -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
       
       <!-- Buffer Size Slider (1 to 8) -->
       <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
@@ -119,33 +131,10 @@
         </div>
       </div>
 
-      <!-- Mode Selector (Real-Time vs Batch Processing) -->
-      <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
-        <div class="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">Modo de Processamento</div>
-        <div class="flex items-center gap-2">
-          <button type="button" @click="setMode('realtime')"
-            :class="mode === 'realtime' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'"
-            class="flex-1 py-1.5 px-2 rounded text-xs font-bold transition text-center">
-            ⚡ Tempo Real
-          </button>
-          <button type="button" @click="setMode('batch')"
-            :class="mode === 'batch' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'"
-            class="flex-1 py-1.5 px-2 rounded text-xs font-bold transition text-center">
-            📊 Tratamento ao Finalizar
-          </button>
-        </div>
-        <div x-show="mode === 'batch'" class="mt-2 text-center" style="display: none">
-          <button @click="processBatch()"
-            class="w-full py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm">
-            Processar Lote Agora (<span x-text="state.raw_batch_count || 0"></span> tags)
-          </button>
-        </div>
-      </div>
-
     </div>
 
     <!-- Summary KPI Bar -->
-    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4 pt-4 border-t border-slate-200">
+    <div class="grid grid-cols-2 sm:grid-cols-6 gap-3 mt-4 pt-4 border-t border-slate-200">
       <div class="bg-slate-100 rounded-lg p-2.5 text-center">
         <div class="text-[11px] font-bold text-slate-500 uppercase">Endereços no Corredor</div>
         <div class="text-lg font-black text-slate-800" x-text="state.resumo ? state.resumo.total_enderecos : 0"></div>
@@ -162,11 +151,129 @@
         <div class="text-[11px] font-bold text-slate-500 uppercase">Buffer Pré-Leitura</div>
         <div class="text-lg font-black text-amber-600" x-text="state.pre_read_count || 0"></div>
       </div>
+      <div class="bg-purple-50 border border-purple-200 rounded-lg p-2.5 text-center">
+        <div class="text-[11px] font-bold text-purple-600 uppercase">Vazamentos / Recup.</div>
+        <div class="text-lg font-black text-purple-700" x-text="`${state.leakage_count || 0} / ${state.recovered_count || 0}`"></div>
+      </div>
       <div class="bg-slate-100 rounded-lg p-2.5 text-center">
         <div class="text-[11px] font-bold text-slate-500 uppercase">Acuracidade Global</div>
         <div class="text-lg font-black text-indigo-600" x-text="`${state.resumo ? state.resumo.progresso_geral : 0}%`"></div>
       </div>
     </div>
+
+    <!-- Leakage Risk Pre-Processing Alert Banner -->
+    <template x-if="state.leakage_risk && state.leakage_risk.corredores_vizinhos && state.leakage_risk.corredores_vizinhos.length > 0">
+      <div class="mt-4 rounded-xl border p-3.5 text-xs"
+        :class="state.leakage_risk.total_enderecos_risco > 0 ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-800'">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2 font-bold">
+            <span x-text="state.leakage_risk.total_enderecos_risco > 0 ? '⚠️' : '✅'"></span>
+            <span x-show="state.leakage_risk.total_enderecos_risco > 0">
+              Risco de Vazamento com Ruas Vizinha (<span x-text="state.leakage_risk.corredores_vizinhos.join(', ')"></span>):
+              <span class="underline" x-text="`${state.leakage_risk.total_enderecos_risco} endereços`"></span>
+              compartilham
+              <span x-text="`${state.leakage_risk.total_skus_risco} SKUs`"></span>
+            </span>
+            <span x-show="state.leakage_risk.total_enderecos_risco === 0">
+              Sem risco de vazamento cruzado: nenhum SKU repetido nas ruas vizinhas (<span x-text="state.leakage_risk.corredores_vizinhos.join(', ')"></span>).
+            </span>
+          </div>
+
+          <button type="button" x-show="state.leakage_risk.total_enderecos_risco > 0"
+            @click="showRiskList = !showRiskList"
+            class="px-3 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] transition shadow-sm">
+            <span x-text="showRiskList ? '▲ Ocultar Lista de Risco' : '▼ Ver Endereços e SKUs em Risco'"></span>
+          </button>
+        </div>
+
+        <div x-show="showRiskList && state.leakage_risk.total_enderecos_risco > 0" class="mt-3 max-h-56 overflow-y-auto bg-white rounded-lg border border-amber-200">
+          <table class="min-w-full text-left text-[11px]">
+            <thead class="bg-amber-100 text-amber-900 font-bold">
+              <tr>
+                <th class="px-3 py-1.5">Endereço (<span x-text="corredor"></span>)</th>
+                <th class="px-3 py-1.5">Lado / Nível</th>
+                <th class="px-3 py-1.5">Rua(s) Vizinha(s)</th>
+                <th class="px-3 py-1.5">SKUs com Risco de Vazamento</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-amber-100">
+              <template x-for="r in state.leakage_risk.enderecos_risco" :key="r.endereco">
+                <tr class="hover:bg-amber-50/50">
+                  <td class="px-3 py-1.5 font-mono font-bold text-slate-900" x-text="r.endereco"></td>
+                  <td class="px-3 py-1.5 text-slate-600" x-text="`${r.secao} • ${r.nivel}`"></td>
+                  <td class="px-3 py-1.5 font-bold text-amber-800" x-text="r.corredores_risco.join(', ')"></td>
+                  <td class="px-3 py-1.5">
+                    <div class="flex flex-wrap gap-1">
+                      <template x-for="s in r.skus_em_risco" :key="s.sku">
+                        <span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-mono font-semibold"
+                          x-text="`${s.sku} (viz: ${s.corredores_vizinhos.join(',')})`"></span>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
+
+    <!-- Leakage Post-Processing Results Panel -->
+    <template x-if="reconcileSummary">
+      <div class="mt-4 p-4 rounded-xl bg-purple-50 border border-purple-200 text-xs">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-bold text-purple-900 text-sm">
+            🔍 Reconciliação Espacial por Vazamento:
+            <span class="text-emerald-700" x-text="`${reconcileSummary.total_recuperados_nesta_execucao} peças recuperadas`"></span>
+            (<span x-text="`${reconcileSummary.pares_ancora_descobertos.length} pares físicos descobertos`"></span>)
+          </div>
+          <button @click="reconcileSummary = null" class="text-purple-600 hover:text-purple-900 font-bold">✕ Fechar</button>
+        </div>
+
+        <template x-if="reconcileSummary.pares_ancora_descobertos.length > 0">
+          <div class="mb-3">
+            <div class="font-bold text-purple-800 mb-1">Pares Frente ↔ Costas Identificados pelos EPCs:</div>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="(par, idx) in reconcileSummary.pares_ancora_descobertos" :key="idx">
+                <span class="px-2 py-1 rounded bg-white border border-purple-200 font-mono text-[11px] text-purple-900">
+                  <span x-text="par.endereco_vazamento"></span> ↔ <span x-text="par.endereco_oposto"></span>
+                  (<span class="font-bold text-purple-700" x-text="`${par.epcs_em_comum} EPCs`"></span>)
+                </span>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="reconcileSummary.detalhes_recuperados.length > 0">
+          <div class="max-h-40 overflow-y-auto bg-white rounded-lg border border-purple-200">
+            <table class="min-w-full text-left text-[11px]">
+              <thead class="bg-purple-100 text-purple-900 font-bold">
+                <tr>
+                  <th class="px-2.5 py-1.5">SKU</th>
+                  <th class="px-2.5 py-1.5">EPC</th>
+                  <th class="px-2.5 py-1.5">Endereço Destino</th>
+                  <th class="px-2.5 py-1.5">Endereço de Vazamento (Âncora)</th>
+                  <th class="px-2.5 py-1.5">RSSI</th>
+                  <th class="px-2.5 py-1.5">Confiança</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-purple-100">
+                <template x-for="item in reconcileSummary.detalhes_recuperados" :key="item.epc">
+                  <tr>
+                    <td class="px-2.5 py-1 font-bold" x-text="item.sku"></td>
+                    <td class="px-2.5 py-1 font-mono" x-text="item.epc"></td>
+                    <td class="px-2.5 py-1 font-mono font-bold text-emerald-700" x-text="item.endereco_destino"></td>
+                    <td class="px-2.5 py-1 font-mono text-purple-800" x-text="item.endereco_vazamento"></td>
+                    <td class="px-2.5 py-1" x-text="`${item.rssi ?? '-'} dBm`"></td>
+                    <td class="px-2.5 py-1" x-text="item.confianca"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </template>
 
   </div>
 
@@ -193,7 +300,8 @@
       <div class="p-4 flex-1 bg-slate-50/50">
         <div :class="getGridColsClass(bufferSize)" class="grid gap-3">
           <template x-for="item in quadrants.Q1" :key="item.endereco">
-            <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm hover:shadow transition flex flex-col justify-between">
+            <div class="rounded-lg border p-3 shadow-sm hover:shadow transition flex flex-col justify-between"
+              :class="item.risco_vazamento ? 'bg-amber-50/40 border-amber-400' : 'bg-white border-slate-200'">
               <div>
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase"
@@ -203,6 +311,10 @@
                 </div>
                 <div class="font-bold text-slate-800 text-sm tracking-tight truncate" :title="item.endereco" x-text="item.endereco"></div>
                 <div class="text-[11px] text-slate-500 font-semibold mt-0.5" x-text="`${item.secao} • ${item.nivel} • ${item.lado}`"></div>
+                <template x-if="item.risco_vazamento">
+                  <div class="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold"
+                    x-text="`⚠️ Risco Vazamento (${(item.corredores_risco || []).join(', ')} • ${item.skus_em_risco_count || 0} SKU)`"></div>
+                </template>
               </div>
 
               <div class="mt-3">
@@ -249,7 +361,8 @@
       <div class="p-4 flex-1 bg-slate-50/50">
         <div :class="getGridColsClass(bufferSize)" class="grid gap-3">
           <template x-for="item in quadrants.Q3" :key="item.endereco">
-            <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm hover:shadow transition flex flex-col justify-between">
+            <div class="rounded-lg border p-3 shadow-sm hover:shadow transition flex flex-col justify-between"
+              :class="item.risco_vazamento ? 'bg-amber-50/40 border-amber-400' : 'bg-white border-slate-200'">
               <div>
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase"
@@ -259,6 +372,10 @@
                 </div>
                 <div class="font-bold text-slate-800 text-sm tracking-tight truncate" :title="item.endereco" x-text="item.endereco"></div>
                 <div class="text-[11px] text-slate-500 font-semibold mt-0.5" x-text="`${item.secao} • ${item.nivel} • ${item.lado}`"></div>
+                <template x-if="item.risco_vazamento">
+                  <div class="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold"
+                    x-text="`⚠️ Risco Vazamento (${(item.corredores_risco || []).join(', ')} • ${item.skus_em_risco_count || 0} SKU)`"></div>
+                </template>
               </div>
 
               <div class="mt-3">
@@ -305,7 +422,8 @@
       <div class="p-4 flex-1 bg-slate-50/50">
         <div :class="getGridColsClass(bufferSize)" class="grid gap-3">
           <template x-for="item in quadrants.Q2" :key="item.endereco">
-            <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm hover:shadow transition flex flex-col justify-between">
+            <div class="rounded-lg border p-3 shadow-sm hover:shadow transition flex flex-col justify-between"
+              :class="item.risco_vazamento ? 'bg-amber-50/40 border-amber-400' : 'bg-white border-slate-200'">
               <div>
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase"
@@ -315,6 +433,10 @@
                 </div>
                 <div class="font-bold text-slate-800 text-sm tracking-tight truncate" :title="item.endereco" x-text="item.endereco"></div>
                 <div class="text-[11px] text-slate-500 font-semibold mt-0.5" x-text="`${item.secao} • ${item.nivel} • ${item.lado}`"></div>
+                <template x-if="item.risco_vazamento">
+                  <div class="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold"
+                    x-text="`⚠️ Risco Vazamento (${(item.corredores_risco || []).join(', ')} • ${item.skus_em_risco_count || 0} SKU)`"></div>
+                </template>
               </div>
 
               <div class="mt-3">
@@ -361,7 +483,8 @@
       <div class="p-4 flex-1 bg-slate-50/50">
         <div :class="getGridColsClass(bufferSize)" class="grid gap-3">
           <template x-for="item in quadrants.Q4" :key="item.endereco">
-            <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm hover:shadow transition flex flex-col justify-between">
+            <div class="rounded-lg border p-3 shadow-sm hover:shadow transition flex flex-col justify-between"
+              :class="item.risco_vazamento ? 'bg-amber-50/40 border-amber-400' : 'bg-white border-slate-200'">
               <div>
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase"
@@ -371,6 +494,10 @@
                 </div>
                 <div class="font-bold text-slate-800 text-sm tracking-tight truncate" :title="item.endereco" x-text="item.endereco"></div>
                 <div class="text-[11px] text-slate-500 font-semibold mt-0.5" x-text="`${item.secao} • ${item.nivel} • ${item.lado}`"></div>
+                <template x-if="item.risco_vazamento">
+                  <div class="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold"
+                    x-text="`⚠️ Risco Vazamento (${(item.corredores_risco || []).join(', ')} • ${item.skus_em_risco_count || 0} SKU)`"></div>
+                </template>
               </div>
 
               <div class="mt-3">
@@ -411,6 +538,9 @@
       state: {},
       quadrants: { Q1: [], Q2: [], Q3: [], Q4: [] },
       deviceStatus: { connected: false, reading: false, device_name: null },
+      isReconciling: false,
+      reconcileSummary: null,
+      showRiskList: false,
       pollInterval: null,
 
       async init() {
@@ -474,13 +604,8 @@
         await this.postSettings({
           buffer_size: this.bufferSize,
           time_decay: this.timeDecay,
-          mode: this.mode,
+          mode: 'realtime',
         });
-      },
-
-      async setMode(m) {
-        this.mode = m;
-        await this.postSettings({ mode: m });
       },
 
       async postSettings(payload) {
@@ -524,12 +649,27 @@
         }
       },
 
-      async processBatch() {
+      async finalizarEAbrirDashboard() {
+        if (this.state.leakage_count > 0) {
+          await this.reconcileLeakages();
+        }
+        window.location.href = '/carrinho/dashboard';
+      },
+
+      async reconcileLeakages() {
+        this.isReconciling = true;
         try {
-          await fetch('/api/v1/carrinho/process_batch', { method: 'POST' });
-          await this.loadState();
+          const res = await fetch('/api/v1/carrinho/reconcile_leakages', { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            this.reconcileSummary = data.summary;
+            this.state = data.state;
+            this.quadrants = this.state.quadrants;
+          }
         } catch (e) {
-          console.error('Error processing batch', e);
+          console.error('Error reconciling leakages', e);
+        } finally {
+          this.isReconciling = false;
         }
       },
 

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -12,7 +12,6 @@ from app.services import rfid_manager
 from app.services.rfid.renner_codec import (
 	get_renner_sku,
 	renner_get_address_by_epc,
-	renner_get_epc_from_sku,
 	renner_serialize_epc_by_address,
 )
 from smartx_rfid.schemas.tag import WriteTagValidator
@@ -20,22 +19,28 @@ from smartx_rfid.schemas.tag import WriteTagValidator
 router = APIRouter(prefix='/api/v1/gravacao', tags=['Gravacao'])
 
 
-# ===================== POWER CONTROLS =====================
+# ===================== POWER & RSSI CONTROLS (BANCADA ONLY) =====================
+BANCADA_CONFIG_PATH = os.path.join('config', 'gravacao_bancada.json')
+
 current_power_config = {
 	'read_power': 30.0,
-	'write_power': 18.0,
+	'write_power': 25.0,
 	'min_power': 10.0,
 	'max_power': 33.0,
+	'rssi_min': -90,
 }
 
-# Try loading read_power from device config if available
+# Load workbench-only settings from dedicated file (never overwrites device CD config)
 try:
-	cfg_path = os.path.join('config', 'devices', 'impinj-17-39-4a.json')
-	if os.path.exists(cfg_path):
-		with open(cfg_path, 'r', encoding='utf-8') as f:
-			dev_cfg = json.load(f)
-			raw_pwr = dev_cfg.get('read_power', 30)
-			current_power_config['read_power'] = float(raw_pwr if raw_pwr <= 33 else raw_pwr / 100)
+	if os.path.exists(BANCADA_CONFIG_PATH):
+		with open(BANCADA_CONFIG_PATH, 'r', encoding='utf-8') as f:
+			bancada_cfg = json.load(f)
+			if 'read_power' in bancada_cfg:
+				current_power_config['read_power'] = max(10.0, min(33.0, float(bancada_cfg['read_power'])))
+			if 'write_power' in bancada_cfg:
+				current_power_config['write_power'] = max(10.0, min(33.0, float(bancada_cfg['write_power'])))
+			if 'rssi_min' in bancada_cfg:
+				current_power_config['rssi_min'] = max(-90, min(-20, int(bancada_cfg['rssi_min'])))
 except Exception:
 	pass
 
@@ -43,6 +48,7 @@ except Exception:
 class PowerSettingsPayload(BaseModel):
 	read_power: Optional[float] = None
 	write_power: Optional[float] = None
+	rssi_min: Optional[int] = None
 
 
 async def apply_device_power(power_dbm: float):
@@ -76,39 +82,56 @@ async def apply_device_power(power_dbm: float):
 				logging.error(f"Erro ao atualizar potência LLRP: {e}")
 
 
-def persist_read_power(power_dbm: float):
-	"""Saves read power setting into device config JSON."""
+def persist_bancada_config():
+	"""Saves workbench-only slider settings into dedicated JSON without touching device CD config."""
 	try:
-		cfg_path = os.path.join('config', 'devices', 'impinj-17-39-4a.json')
-		if os.path.exists(cfg_path):
-			with open(cfg_path, 'r', encoding='utf-8') as f:
-				dev_cfg = json.load(f)
-			dev_cfg['read_power'] = round(power_dbm, 1)
-			with open(cfg_path, 'w', encoding='utf-8') as f:
-				json.dump(dev_cfg, f, indent=2)
+		os.makedirs(os.path.dirname(BANCADA_CONFIG_PATH), exist_ok=True)
+		with open(BANCADA_CONFIG_PATH, 'w', encoding='utf-8') as f:
+			json.dump(
+				{
+					'read_power': round(current_power_config['read_power'], 1),
+					'write_power': round(current_power_config['write_power'], 1),
+					'rssi_min': int(current_power_config['rssi_min']),
+				},
+				f,
+				indent=2,
+			)
 	except Exception as e:
-		logging.warning(f"Could not persist read power to config: {e}")
+		logging.warning(f"Could not persist bancada config: {e}")
 
 
 @router.get('/power_settings')
 async def get_power_settings():
-	"""Gets current reading and writing power levels in dBm."""
+	"""Gets current workbench reading/writing power and RSSI levels."""
 	return current_power_config
 
 
 @router.post('/power_settings')
 async def update_power_settings(payload: PowerSettingsPayload):
-	"""Updates reading and writing power levels and applies to reader."""
+	"""Updates workbench power and RSSI levels independently of the CD device config."""
 	read_changed = False
+	changed = False
 	if payload.read_power is not None:
 		val = max(10.0, min(33.0, round(float(payload.read_power), 1)))
 		if abs(val - current_power_config['read_power']) > 0.05:
 			current_power_config['read_power'] = val
 			read_changed = True
-			persist_read_power(val)
+			changed = True
 
 	if payload.write_power is not None:
-		current_power_config['write_power'] = max(10.0, min(33.0, round(float(payload.write_power), 1)))
+		val_w = max(10.0, min(33.0, round(float(payload.write_power), 1)))
+		if abs(val_w - current_power_config['write_power']) > 0.05:
+			current_power_config['write_power'] = val_w
+			changed = True
+
+	if payload.rssi_min is not None:
+		val_r = max(-90, min(-20, int(payload.rssi_min)))
+		if val_r != current_power_config['rssi_min']:
+			current_power_config['rssi_min'] = val_r
+			changed = True
+
+	if changed:
+		persist_bancada_config()
 
 	if read_changed:
 		await apply_device_power(current_power_config['read_power'])
@@ -121,19 +144,6 @@ class WriteAddressPayload(BaseModel):
 	endereco: str
 	target_tid: str
 	device_name: Optional[str] = None
-
-
-class SkuBatchItem(BaseModel):
-	sku: str
-	serial: int
-	target_tid: str
-	target_epc: Optional[str] = None
-
-
-class WriteSkuBatchPayload(BaseModel):
-	endereco: str
-	device_name: Optional[str] = None
-	items: List[SkuBatchItem]
 
 
 def get_active_device_name(preferred: Optional[str] = None) -> Optional[str]:
@@ -206,11 +216,44 @@ async def get_enderecos_by_corredor(corredor: str):
 		return JSONResponse(status_code=500, content={'error': str(e)})
 
 
+@router.get('/enderecos_por_sku')
+async def get_enderecos_por_sku(corredor: str, sku: str):
+	"""Returns all distinct addresses for a given corridor that contain the specified SKU."""
+	try:
+		db = rfid_manager.controller.integration.db_manager
+		items = db.get_all(Inventory)
+		addr_map = {}
+		target_corredor = corredor.strip().upper()
+		target_sku_norm = sku.strip().lstrip('0') or '0'
+
+		for it in items:
+			curr_corr = (it.corredor or '').strip().upper()
+			if not (curr_corr == target_corredor or curr_corr.lstrip('C') == target_corredor.lstrip('C')):
+				continue
+			item_sku_norm = str(it.sku or '').strip().lstrip('0') or '0'
+			if item_sku_norm != target_sku_norm:
+				continue
+
+			addr = it.endereco
+			if addr not in addr_map:
+				addr_map[addr] = {
+					'endereco': addr,
+					'corredor': it.corredor,
+					'total_quantidade': 0,
+				}
+			addr_map[addr]['total_quantidade'] += int(it.quantidade or 1)
+
+		addresses_list = list(addr_map.values())
+		addresses_list.sort(key=lambda x: x['endereco'])
+		return {'corredor': corredor, 'sku': sku, 'enderecos': addresses_list}
+	except Exception as e:
+		return JSONResponse(status_code=500, content={'error': str(e)})
+
+
 @router.get('/endereco_detalhes')
 async def get_endereco_detalhes(corredor: str, endereco: str):
-	"""Generates the Address EPC and SKU targets with sequential serials."""
+	"""Generates the Address EPC for the selected address."""
 	try:
-		# 1. Generate Address EPC
 		address_epc = None
 		address_epc_error = None
 		try:
@@ -218,41 +261,11 @@ async def get_endereco_detalhes(corredor: str, endereco: str):
 		except Exception as e:
 			address_epc_error = str(e)
 
-		# 2. Get SKUs from DB
-		db = rfid_manager.controller.integration.db_manager
-		items = db.get_all(Inventory)
-		matched_items = []
-		total_pecas = 0
-		serial_counter = 1
-
-		sku_targets = []
-		for it in items:
-			if it.endereco == endereco:
-				qtd = int(it.quantidade or 1)
-				total_pecas += qtd
-				matched_items.append({'sku': it.sku, 'quantidade': qtd})
-				for i in range(qtd):
-					try:
-						epc_gerado = renner_get_epc_from_sku(it.sku, serial=serial_counter)
-					except Exception:
-						epc_gerado = f"0000{int(it.sku):012x}{serial_counter:08x}"
-					sku_targets.append({
-						'item_idx': len(sku_targets) + 1,
-						'sku': it.sku,
-						'serial': serial_counter,
-						'epc_target': epc_gerado,
-						'status': 'Pendente',
-					})
-					serial_counter += 1
-
 		return {
 			'corredor': corredor,
 			'endereco': endereco,
 			'address_epc': address_epc,
 			'address_epc_error': address_epc_error,
-			'skus_resumo': matched_items,
-			'total_pecas': total_pecas,
-			'sku_targets': sku_targets,
 		}
 	except Exception as e:
 		return JSONResponse(status_code=500, content={'error': str(e)})
@@ -260,11 +273,15 @@ async def get_endereco_detalhes(corredor: str, endereco: str):
 
 @router.get('/tags_na_bancada')
 async def get_tags_na_bancada():
-	"""Gets currently detected tags in memory with their TIDs and EPCs."""
+	"""Gets currently detected tags in memory filtered by read RSSI threshold."""
 	try:
 		tags = rfid_manager.tags.get_all()
+		rssi_min = current_power_config.get('rssi_min', -90)
 		formatted = []
 		for t in tags:
+			rssi = t.get('rssi')
+			if rssi is not None and float(rssi) < rssi_min:
+				continue
 			epc = t.get('epc', '')
 			tid = t.get('tid', '')
 			sku = get_renner_sku(epc)
@@ -273,13 +290,14 @@ async def get_tags_na_bancada():
 			formatted.append({
 				'tid': tid,
 				'epc': epc,
-				'rssi': t.get('rssi'),
+				'rssi': rssi,
 				'ant': t.get('ant'),
 				'device': t.get('device'),
 				'tag_type': tag_type,
+				'sku': sku,
 				'decoded_info': addr if addr else (f"SKU: {sku}" if sku else None),
 			})
-		return {'total': len(formatted), 'tags': formatted}
+		return {'total': len(formatted), 'tags': formatted, 'rssi_min': rssi_min}
 	except Exception as e:
 		return JSONResponse(status_code=500, content={'error': str(e)})
 
@@ -331,7 +349,7 @@ async def gravar_tag_endereco(payload: WriteAddressPayload):
 	)
 
 	# Apply write power before programming tag
-	write_pwr = current_power_config.get('write_power', 18.0)
+	write_pwr = current_power_config.get('write_power', 25.0)
 	read_pwr = current_power_config.get('read_power', 30.0)
 	needs_power_switch = abs(write_pwr - read_pwr) > 0.1
 
@@ -355,64 +373,5 @@ async def gravar_tag_endereco(payload: WriteAddressPayload):
 		'target_tid': payload.target_tid,
 		'epc_gravado': epc_target,
 		'device': device_name,
-		'potencia_gravacao': write_pwr,
-	}
-
-
-@router.post('/gravar_skus_lote')
-async def gravar_skus_lote(payload: WriteSkuBatchPayload):
-	"""Writes a batch of SKU EPCs anchored to individual TIDs with write power control."""
-	device_name = get_active_device_name(payload.device_name)
-	if not device_name:
-		return JSONResponse(status_code=400, content={'error': 'Nenhum leitor conectado para gravação'})
-
-	write_pwr = current_power_config.get('write_power', 18.0)
-	read_pwr = current_power_config.get('read_power', 30.0)
-	needs_power_switch = abs(write_pwr - read_pwr) > 0.1
-
-	if needs_power_switch:
-		await apply_device_power(write_pwr)
-
-	results = []
-	try:
-		for item in payload.items:
-			try:
-				epc = item.target_epc or renner_get_epc_from_sku(item.sku, item.serial)
-				tid = item.target_tid.lower().strip()
-				validator = WriteTagValidator(
-					target_identifier='tid',
-					target_value=tid,
-					new_epc=epc.lower().strip(),
-					password='00000000',
-				)
-				logging.info(f'[BANCADA] Gravando SKU {item.sku} (S/N {item.serial}) -> EPC {epc} no TID {tid} ({write_pwr} dBm)')
-				status, msg = await rfid_manager.devices.write_epc(device_name, validator)
-				results.append({
-					'sku': item.sku,
-					'serial': item.serial,
-					'tid': tid,
-					'epc': epc,
-					'status': 'Sucesso' if status else 'Erro',
-					'message': msg if not status else 'OK',
-				})
-			except Exception as e:
-				results.append({
-					'sku': item.sku,
-					'serial': item.serial,
-					'tid': item.target_tid,
-					'status': 'Erro',
-					'message': str(e),
-				})
-	finally:
-		if needs_power_switch:
-			await apply_device_power(read_pwr)
-
-	success_count = sum(1 for r in results if r['status'] == 'Sucesso')
-	return {
-		'status': 'completed',
-		'total': len(results),
-		'sucessos': success_count,
-		'falhas': len(results) - success_count,
-		'detalhes': results,
 		'potencia_gravacao': write_pwr,
 	}

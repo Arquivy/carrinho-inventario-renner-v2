@@ -1,0 +1,420 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-[1700px] mx-auto px-4 py-6" x-data="dashboardApp()">
+
+  <!-- Header -->
+  <div class="bg-white rounded-xl shadow-md border border-slate-200 p-5 mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-2xl shadow-sm">
+          📊
+        </div>
+        <div>
+          <h2 class="text-xl font-bold text-slate-900 leading-tight">Dashboard Executivo de Fechamento de Inventário RFID</h2>
+          <p class="text-xs text-slate-500 mt-0.5">Visão consolidada de acuracidade, divergências, excesso de itens e risco de vazamento</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Corridor filter pills -->
+        <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+          <button @click="setCorredor('ALL')"
+            :class="selectedCorredor === 'ALL' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-700 hover:bg-white'"
+            class="px-3 py-1 rounded-md text-xs font-bold transition">
+            Todos
+          </button>
+          <template x-for="c in report.corredores_disponiveis" :key="c">
+            <button @click="setCorredor(c)"
+              :class="selectedCorredor === c ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-700 hover:bg-white'"
+              class="px-3 py-1 rounded-md text-xs font-bold transition" x-text="c"></button>
+          </template>
+        </div>
+
+        <button @click="exportExcel()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition">
+          📥 Exportar Excel
+        </button>
+
+        <button @click="window.print()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold shadow-sm transition">
+          🖨️ Imprimir / PDF
+        </button>
+
+        <a href="/carrinho"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition">
+          ← Voltar ao Carrinho
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6 Executive KPI Cards -->
+  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+    <!-- KPI 1: Acuracidade -->
+    <div class="bg-white rounded-xl shadow-sm border border-indigo-200 p-4">
+      <div class="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">Acuracidade Global</div>
+      <div class="text-2xl font-black text-indigo-700 mt-1" x-text="`${report.kpis.acuracidade_global ?? 0}%`"></div>
+      <div class="text-[11px] text-slate-500 mt-1" x-text="`${report.kpis.pecas_total_lidas ?? 0} de ${report.kpis.pecas_esperadas ?? 0} peças`"></div>
+    </div>
+
+    <!-- KPI 2: Endereços Lidos -->
+    <div class="bg-white rounded-xl shadow-sm border border-emerald-200 p-4">
+      <div class="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Endereços Lidos</div>
+      <div class="text-2xl font-black text-emerald-700 mt-1" x-text="`${report.kpis.enderecos_lidos ?? 0} / ${report.kpis.total_enderecos ?? 0}`"></div>
+      <div class="text-[11px] text-slate-500 mt-1" x-text="`${report.kpis.pct_enderecos_lidos ?? 0}% dos endereços`"></div>
+    </div>
+
+    <!-- KPI 3: Peças Lidas Direto -->
+    <div class="bg-white rounded-xl shadow-sm border border-blue-200 p-4">
+      <div class="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Leitura Direta</div>
+      <div class="text-2xl font-black text-blue-700 mt-1" x-text="report.kpis.pecas_lidas_direto ?? 0"></div>
+      <div class="text-[11px] text-slate-500 mt-1">peças lidas na rua</div>
+    </div>
+
+    <!-- KPI 4: Recuperados por Vazamento -->
+    <div class="bg-white rounded-xl shadow-sm border border-purple-200 p-4">
+      <div class="text-[11px] font-bold text-purple-700 uppercase tracking-wider">Recup. por Vazamento</div>
+      <div class="text-2xl font-black text-purple-700 mt-1" x-text="`+${report.kpis.pecas_recuperadas_vazamento ?? 0}`"></div>
+      <div class="text-[11px] text-slate-500 mt-1">peças resgatadas</div>
+    </div>
+
+    <!-- KPI 5: Endereços com Excesso -->
+    <div class="bg-white rounded-xl shadow-sm border border-rose-200 p-4">
+      <div class="text-[11px] font-bold text-rose-700 uppercase tracking-wider">Ruas / End. Excesso</div>
+      <div class="text-2xl font-black text-rose-700 mt-1" x-text="`${report.kpis.enderecos_com_excesso ?? 0} end.`"></div>
+      <div class="text-[11px] text-rose-600 font-semibold mt-1" x-text="`+${report.kpis.total_pecas_excesso ?? 0} peças excedentes`"></div>
+    </div>
+
+    <!-- KPI 6: Risco de Vazamento -->
+    <div class="bg-white rounded-xl shadow-sm border border-amber-200 p-4">
+      <div class="text-[11px] font-bold text-amber-700 uppercase tracking-wider">Risco de Vazamento</div>
+      <div class="text-2xl font-black text-amber-700 mt-1" x-text="`${report.kpis.enderecos_risco_vazamento ?? 0} end.`"></div>
+      <div class="text-[11px] text-slate-500 mt-1">SKUs iguais às ruas do lado</div>
+    </div>
+  </div>
+
+  <!-- Analytics Charts Row (3 Cards) -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+
+    <!-- Chart 1: Progresso e Divergência por Corredor -->
+    <div class="lg:col-span-5 bg-white rounded-xl shadow-md border border-slate-200 p-5">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+        <h3 class="text-sm font-bold text-slate-800">📊 Progresso &amp; Divergência por Rua</h3>
+        <div class="flex items-center gap-2 text-[10px] font-semibold">
+          <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>Direto</span>
+          <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-purple-500"></span>Vazamento</span>
+          <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-rose-500"></span>Excesso</span>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <template x-for="c in report.por_corredor" :key="c.corredor">
+          <div>
+            <div class="flex justify-between items-center text-xs mb-1">
+              <div class="font-bold text-slate-800">
+                <span x-text="c.corredor"></span>
+                <span class="text-[11px] font-normal text-slate-500 ml-1"
+                  x-text="`(${c.enderecos_lidos}/${c.total_enderecos} end. lidos)`"></span>
+              </div>
+              <div class="flex items-center gap-2">
+                <template x-if="c.excesso > 0">
+                  <span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[10px]" x-text="`+${c.excesso} exc.`"></span>
+                </template>
+                <span class="font-black text-indigo-700" x-text="`${c.pct_conclusao}%`"></span>
+              </div>
+            </div>
+
+            <!-- Stacked progress bar -->
+            <div class="w-full h-4 bg-slate-100 rounded-full overflow-hidden flex border border-slate-200">
+              <div class="bg-emerald-500 h-full transition-all"
+                :style="`width: ${c.esperado > 0 ? Math.min(100, (c.lido_direto / c.esperado * 100)) : 0}%`"
+                :title="`Lido Direto: ${c.lido_direto}`"></div>
+              <div class="bg-purple-500 h-full transition-all"
+                :style="`width: ${c.esperado > 0 ? Math.min(100, (c.recuperado_vazamento / c.esperado * 100)) : 0}%`"
+                :title="`Recuperado Vazamento: ${c.recuperado_vazamento}`"></div>
+            </div>
+
+            <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+              <span x-text="`Esperado: ${c.esperado} | Lido: ${c.total_lido}`"></span>
+              <span x-text="`Falta: ${c.falta} | Risco Vaz.: ${c.enderecos_risco} end.`"></span>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="!report.por_corredor || report.por_corredor.length === 0">
+          <div class="text-center py-8 text-xs text-slate-400">Nenhum dado de corredor disponível.</div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Chart 2: Donut Status dos Endereços -->
+    <div class="lg:col-span-3 bg-white rounded-xl shadow-md border border-slate-200 p-5 flex flex-col justify-between">
+      <div class="border-b border-slate-100 pb-3 mb-4">
+        <h3 class="text-sm font-bold text-slate-800">🍩 Status dos Endereços</h3>
+      </div>
+
+      <div class="flex flex-col items-center justify-center my-2">
+        <svg viewBox="0 0 120 120" class="w-40 h-40 -rotate-90">
+          <circle cx="60" cy="60" r="45" fill="none" stroke="#e2e8f0" stroke-width="18"></circle>
+          <template x-for="seg in donutSegments" :key="seg.label">
+            <circle cx="60" cy="60" r="45" fill="none"
+              :stroke="seg.color" stroke-width="18"
+              :stroke-dasharray="`${seg.dash} ${282.74 - seg.dash}`"
+              :stroke-dashoffset="-seg.offset">
+            </circle>
+          </template>
+        </svg>
+        <div class="text-center -mt-24 mb-16">
+          <div class="text-xl font-black text-slate-800" x-text="report.kpis.total_enderecos ?? 0"></div>
+          <div class="text-[10px] font-bold text-slate-400 uppercase">Endereços</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 text-xs mt-2">
+        <div class="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5">
+          <span class="font-semibold text-emerald-800">● Concluído</span>
+          <span class="font-black text-emerald-900" x-text="report.status_distribuicao['Concluído'] ?? 0"></span>
+        </div>
+        <div class="flex items-center justify-between bg-blue-50 border border-blue-200 rounded px-2.5 py-1.5">
+          <span class="font-semibold text-blue-800">● Parcial</span>
+          <span class="font-black text-blue-900" x-text="report.status_distribuicao['Parcial'] ?? 0"></span>
+        </div>
+        <div class="flex items-center justify-between bg-rose-50 border border-rose-200 rounded px-2.5 py-1.5">
+          <span class="font-semibold text-rose-800">● Excesso</span>
+          <span class="font-black text-rose-900" x-text="report.status_distribuicao['Excesso'] ?? 0"></span>
+        </div>
+        <div class="flex items-center justify-between bg-slate-100 border border-slate-200 rounded px-2.5 py-1.5">
+          <span class="font-semibold text-slate-700">● Não Lido</span>
+          <span class="font-black text-slate-800" x-text="report.status_distribuicao['Não Lido'] ?? 0"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart 3: Leituras por Quadrante / Antena -->
+    <div class="lg:col-span-4 bg-white rounded-xl shadow-md border border-slate-200 p-5">
+      <div class="border-b border-slate-100 pb-3 mb-4">
+        <h3 class="text-sm font-bold text-slate-800">📡 Performance por Quadrante / Antena</h3>
+      </div>
+
+      <div class="space-y-4">
+        <template x-for="q in report.por_quadrante" :key="q.quadrante">
+          <div class="bg-slate-50 rounded-lg p-3 border border-slate-200">
+            <div class="flex justify-between items-center text-xs mb-1.5">
+              <span class="font-bold text-slate-800" x-text="`${q.quadrante} • ${q.label}`"></span>
+              <span class="font-black text-indigo-700" x-text="`${q.pct}%`"></span>
+            </div>
+            <div class="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+              <div class="h-full bg-indigo-600 rounded-full transition-all" :style="`width: ${Math.min(100, q.pct)}%`"></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-slate-500 mt-1 font-semibold">
+              <span x-text="`Peças: ${q.lidos}/${q.esperados}`"></span>
+              <span x-text="`Endereços 100%: ${q.concluidos}/${q.total_enderecos}`"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Detailed Audit Table -->
+  <div class="bg-white rounded-xl shadow-md border border-slate-200 p-5">
+    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4 mb-4">
+      <div>
+        <h3 class="text-base font-bold text-slate-800">📋 Detalhamento por Endereço (Auditoria Completa)</h3>
+        <p class="text-xs text-slate-500">Filtre rapidamente por falta, excesso de itens ou risco de vazamento</p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <input type="text" x-model="searchQuery" placeholder="Buscar endereço ou SKU..."
+          class="text-xs border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500">
+
+        <div class="flex flex-wrap gap-1">
+          <template x-for="tab in filterTabs" :key="tab.id">
+            <button @click="statusFilter = tab.id"
+              :class="statusFilter === tab.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
+              class="px-2.5 py-1.5 rounded-lg text-xs font-bold transition" x-text="tab.label"></button>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto border border-slate-200 rounded-lg">
+      <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
+        <thead class="bg-slate-50 text-slate-700 uppercase font-bold text-[11px] tracking-wider">
+          <tr>
+            <th class="px-3 py-2.5">Endereço</th>
+            <th class="px-3 py-2.5">Corredor</th>
+            <th class="px-3 py-2.5 text-center">Esperado</th>
+            <th class="px-3 py-2.5 text-center">Lido Direto</th>
+            <th class="px-3 py-2.5 text-center">Recup. Vazamento</th>
+            <th class="px-3 py-2.5 text-center">Divergência</th>
+            <th class="px-3 py-2.5 text-center">% Lido</th>
+            <th class="px-3 py-2.5">Risco de Vazamento</th>
+            <th class="px-3 py-2.5 text-center">Status</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 bg-white">
+          <template x-for="row in filteredEnderecos" :key="row.endereco">
+            <tr class="hover:bg-slate-50 transition"
+              :class="row.status === 'Excesso' ? 'bg-rose-50/40' : (row.risco_vazamento ? 'bg-amber-50/30' : '')">
+              <td class="px-3 py-2 font-mono font-bold text-slate-900" x-text="row.endereco"></td>
+              <td class="px-3 py-2 font-semibold text-slate-700" x-text="row.corredor"></td>
+              <td class="px-3 py-2 text-center font-semibold" x-text="row.esperado"></td>
+              <td class="px-3 py-2 text-center font-bold text-emerald-700" x-text="row.lido_direto"></td>
+              <td class="px-3 py-2 text-center font-bold text-purple-700" x-text="row.recuperado_vazamento > 0 ? `+${row.recuperado_vazamento}` : '0'"></td>
+              <td class="px-3 py-2 text-center font-extrabold"
+                :class="row.divergencia > 0 ? 'text-rose-600' : (row.divergencia < 0 ? 'text-amber-600' : 'text-emerald-600')"
+                x-text="row.divergencia > 0 ? `+${row.divergencia}` : row.divergencia"></td>
+              <td class="px-3 py-2 text-center font-bold text-indigo-700" x-text="`${row.pct}%`"></td>
+              <td class="px-3 py-2">
+                <template x-if="row.risco_vazamento">
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold"
+                    :title="`SKUs em risco: ${row.skus_em_risco.join(', ')}`"
+                    x-text="`⚠️ ${row.corredores_risco.join(', ')} (${row.skus_em_risco_count} SKU)`"></span>
+                </template>
+                <template x-if="!row.risco_vazamento">
+                  <span class="text-[11px] text-slate-400">—</span>
+                </template>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold"
+                  :class="{
+                    'bg-emerald-100 text-emerald-800 border border-emerald-300': row.status === 'Concluído',
+                    'bg-rose-100 text-rose-800 border border-rose-300': row.status === 'Excesso',
+                    'bg-blue-100 text-blue-800 border border-blue-300': row.status === 'Parcial',
+                    'bg-slate-100 text-slate-600 border border-slate-300': row.status === 'Não Lido'
+                  }"
+                  x-text="row.status"></span>
+              </td>
+            </tr>
+          </template>
+
+          <template x-if="filteredEnderecos.length === 0">
+            <tr>
+              <td colspan="9" class="px-4 py-8 text-center text-slate-400">
+                Nenhum endereço encontrado para o filtro selecionado.
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/js/xlsx.full.min.js"></script>
+<script>
+  function dashboardApp() {
+    return {
+      selectedCorredor: 'ALL',
+      statusFilter: 'ALL',
+      searchQuery: '',
+      filterTabs: [
+        { id: 'ALL', label: 'Todos' },
+        { id: 'FALTA', label: 'Com Falta' },
+        { id: 'EXCESSO', label: 'Com Excesso' },
+        { id: 'RISCO', label: 'Risco Vazamento' },
+        { id: 'CONCLUIDO', label: 'Concluídos' },
+        { id: 'NAO_LIDO', label: 'Não Lidos' }
+      ],
+      report: {
+        corredores_disponiveis: [],
+        kpis: {},
+        por_corredor: [],
+        status_distribuicao: {},
+        por_quadrante: [],
+        enderecos: []
+      },
+
+      async init() {
+        await this.loadReport();
+      },
+
+      async setCorredor(c) {
+        this.selectedCorredor = c;
+        await this.loadReport();
+      },
+
+      async loadReport() {
+        try {
+          const url = `/api/v1/carrinho/dashboard?corredor=${encodeURIComponent(this.selectedCorredor)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            this.report = await res.json();
+          }
+        } catch (e) {
+          console.error('Erro ao carregar dashboard:', e);
+        }
+      },
+
+      get donutSegments() {
+        const dist = this.report.status_distribuicao || {};
+        const total = Object.values(dist).reduce((a, b) => a + b, 0);
+        if (total === 0) return [];
+        const circ = 282.74;
+        const defs = [
+          { label: 'Concluído', count: dist['Concluído'] || 0, color: '#10b981' },
+          { label: 'Parcial', count: dist['Parcial'] || 0, color: '#3b82f6' },
+          { label: 'Excesso', count: dist['Excesso'] || 0, color: '#f43f5e' },
+          { label: 'Não Lido', count: dist['Não Lido'] || 0, color: '#cbd5e1' }
+        ];
+        let offset = 0;
+        return defs.filter(d => d.count > 0).map(d => {
+          const dash = (d.count / total) * circ;
+          const seg = { label: d.label, color: d.color, dash, offset };
+          offset += dash;
+          return seg;
+        });
+      },
+
+      get filteredEnderecos() {
+        let rows = this.report.enderecos || [];
+        if (this.statusFilter === 'FALTA') rows = rows.filter(r => r.falta > 0);
+        else if (this.statusFilter === 'EXCESSO') rows = rows.filter(r => r.excesso > 0);
+        else if (this.statusFilter === 'RISCO') rows = rows.filter(r => r.risco_vazamento);
+        else if (this.statusFilter === 'CONCLUIDO') rows = rows.filter(r => r.status === 'Concluído');
+        else if (this.statusFilter === 'NAO_LIDO') rows = rows.filter(r => r.status === 'Não Lido');
+
+        if (this.searchQuery.trim()) {
+          const q = this.searchQuery.trim().toLowerCase();
+          rows = rows.filter(r =>
+            r.endereco.toLowerCase().includes(q) ||
+            r.corredor.toLowerCase().includes(q) ||
+            (r.skus_em_risco || []).some(s => s.toLowerCase().includes(q))
+          );
+        }
+        return rows;
+      },
+
+      exportExcel() {
+        if (typeof XLSX === 'undefined') {
+          alert('Biblioteca Excel local indisponível.');
+          return;
+        }
+        const rows = (this.report.enderecos || []).map(r => ({
+          'Endereço': r.endereco,
+          'Corredor': r.corredor,
+          'Seção': r.secao,
+          'Nível': r.nivel,
+          'Esperado': r.esperado,
+          'Lido Direto': r.lido_direto,
+          'Recuperado Vazamento': r.recuperado_vazamento,
+          'Total Lido': r.total_lido,
+          'Divergência': r.divergencia,
+          '% Lido': `${r.pct}%`,
+          'Risco Vazamento': r.risco_vazamento ? `Sim (${r.corredores_risco.join(', ')})` : 'Não',
+          'SKUs em Risco': (r.skus_em_risco || []).join(', '),
+          'Status': r.status
+        }));
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Fechamento Inventário');
+        XLSX.writeFile(wb, `fechamento_inventario_${this.selectedCorredor}.xlsx`);
+      }
+    };
+  }
+</script>
+{% endblock %}

@@ -3,12 +3,15 @@
   "username": "root",
   "password": "impinj",
   "start_reading": true,
-  "session": 1,
+  "session": 2,
   "active_ant": [
-    1
+    1,
+    2,
+    3,
+    4
   ],
-  "read_power": 10,
-  "read_rssi": -30,
+  "read_power": 32.0,
+  "read_rssi": -80,
   "search_mode": "single-target",
   "rf_mode": 4,
   "gpi_start": false,
